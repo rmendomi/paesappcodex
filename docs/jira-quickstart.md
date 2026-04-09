@@ -68,3 +68,24 @@ Persona fonoaudiologa:
 
 Tip: que ella siempre deje "entregables pegables" (texto final, tabla, checklist, casos). Eso acelera tu parte.
 
+## 9) Seed por API (opcional)
+En este repo hay un seed basico para crear Epics + tickets en Jira por API:
+- `scripts/jira/backlog-kan.json`
+- `scripts/jira/seed-kan.ps1`
+
+Uso (PowerShell):
+1. Definir variables de entorno (no las commitees):
+   - `JIRA_BASE_URL` (ej: https://tu-dominio.atlassian.net)
+   - `JIRA_PROJECT_KEY` (ej: KAN)
+   - `JIRA_EMAIL` (tu email de Atlassian)
+   - `JIRA_API_TOKEN` (API token)
+   - Opcional (asignaciones):
+     - `JIRA_TECH_ACCOUNT_ID` (si no se setea, usa el usuario del token)
+     - `JIRA_PARTNER_ACCOUNT_ID` (accountId de tu pareja)
+     - `JIRA_PARTNER_QUERY` (alternativa a accountId: email o nombre para buscar el usuario y resolver accountId)
+2. Ejecutar:
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\jira\seed-kan.ps1`
+3. Para probar sin crear nada:
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\jira\seed-kan.ps1 -DryRun`
+4. Si quieres que el script cree Components en el proyecto (requiere permisos de admin del proyecto):
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\jira\seed-kan.ps1 -EnsureComponents`

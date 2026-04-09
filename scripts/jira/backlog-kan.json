@@ -1,0 +1,735 @@
+{
+  "projectKey": "KAN",
+  "seedLabel": "seed_kan_money_v1",
+  "components": [
+    "content",
+    "ux-copy",
+    "qa",
+    "frontend",
+    "backend",
+    "data",
+    "infra"
+  ],
+  "epics": [
+    {
+      "alias": "EPIC_A",
+      "summary": "EPIC A - Practica (resolver pregunta)",
+      "description": "Outcome:\n- Poder resolver preguntas de punta a punta (sin trabas) y que quede registro.\n\nDone when:\n- Flujo base: cargar pregunta -> responder -> feedback -> siguiente.\n- Se registra intento (correcta/incorrecta + habilidad) y se refleja en progreso.\n",
+      "labels": ["mvp"]
+    },
+    {
+      "alias": "EPIC_B",
+      "summary": "EPIC B - Contenido y feedback",
+      "description": "Outcome:\n- Banco de preguntas con tags + explicaciones consistentes (free + premium).\n",
+      "labels": ["mvp"]
+    },
+    {
+      "alias": "EPIC_C",
+      "summary": "EPIC C - Diagnostico + plan",
+      "description": "Outcome:\n- Diagnostico rapido y plan semanal recomendado.\n",
+      "labels": ["mvp"]
+    },
+    {
+      "alias": "EPIC_D",
+      "summary": "EPIC D - Progreso + retencion",
+      "description": "Outcome:\n- Progreso por habilidad + racha + recordatorios.\n",
+      "labels": ["mvp"]
+    },
+    {
+      "alias": "EPIC_E",
+      "summary": "EPIC E - Calidad (QA + microcopy)",
+      "description": "Outcome:\n- Flujo base probado, textos claros, errores visibles.\n",
+      "labels": ["mvp"]
+    },
+    {
+      "alias": "EPIC_F",
+      "summary": "EPIC F - Monetizacion (Stripe + paywall)",
+      "description": "Outcome:\n- Cobrar suscripcion y bloquear features premium.\n\nDone when:\n- Checkout + webhooks + entitlements.\n- Paywall + gestion de suscripcion.\n- Limites de IA controlados.\n",
+      "labels": ["revenue"]
+    },
+    {
+      "alias": "EPIC_G",
+      "summary": "EPIC G - Growth (landing + pricing + referidos)",
+      "description": "Outcome:\n- Embudo de conversion claro: landing -> registro -> primera practica -> pago.\n",
+      "labels": ["growth"]
+    },
+    {
+      "alias": "EPIC_H",
+      "summary": "EPIC H - Analitica (funnel + eventos)",
+      "description": "Outcome:\n- Medir activacion, retencion, conversion y churn.\n",
+      "labels": ["analytics"]
+    },
+    {
+      "alias": "EPIC_I",
+      "summary": "EPIC I - Seguridad + legal + anti-abuso",
+      "description": "Outcome:\n- Datos protegidos (RLS) + politicas + limites contra abuso (IA/costos).\n",
+      "labels": ["security"]
+    },
+    {
+      "alias": "EPIC_J",
+      "summary": "EPIC J - Deploy + operacion",
+      "description": "Outcome:\n- App en produccion estable (deploy, monitoreo, backups, soporte).\n",
+      "labels": ["infra"]
+    }
+  ],
+  "issues": [
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Definir taxonomia de habilidades (Lectura Critica)",
+      "description": "Entregable:\n- Lista de habilidades + definicion (1 linea) + ejemplos.\n\nCriterio:\n- Se pueden clasificar 10 preguntas con dudas minimas.\n",
+      "labels": ["content", "paes-lectura"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Formato estandar de explicacion",
+      "description": "Entregable:\n- Plantilla corta: correcta / por que / por que no las otras (1-2 lineas c/u).\n\nCriterio:\n- Cabe en pantalla movil; consistente.\n",
+      "labels": ["content"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Feedback por error (mensajes) por habilidad",
+      "description": "Entregable:\n- Para cada habilidad: 3 mensajes cortos (errores comunes + accion).\n\nCriterio:\n- Mensajes accionables y sin tecnicismos.\n",
+      "labels": ["content", "ux"],
+      "components": ["content", "ux-copy"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Guia de estilo de explicaciones",
+      "description": "Entregable:\n- Reglas de tono, largo maximo, ejemplos buenos/malos, consistencia de terminos.\n",
+      "labels": ["content"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Set inicial de preguntas (30) + tags",
+      "description": "Entregable:\n- 30 preguntas con: alternativas, correcta, habilidad, dificultad, explicacion y 'por que no'.\n",
+      "labels": ["content", "seed"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Pack premium Lectura (100) + explicaciones",
+      "description": "Entregable:\n- 100 preguntas Lectura con tags + explicaciones estandar.\n\nCriterio:\n- Sin ambiguedad; distractores justificados.\n",
+      "labels": ["content", "premium", "paes-lectura"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Pack premium M1 (100) + explicaciones",
+      "description": "Entregable:\n- 100 preguntas M1 con tags + explicaciones.\n",
+      "labels": ["content", "premium", "paes-m1"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Pack premium M2 (80) + explicaciones",
+      "description": "Entregable:\n- 80 preguntas M2 con tags + explicaciones.\n",
+      "labels": ["content", "premium", "paes-m2"],
+      "components": ["content"],
+      "epicAlias": "EPIC_B",
+      "owner": "partner"
+    },
+    {
+      "type": "Spike",
+      "summary": "[SPIKE] Definir formato y pipeline del banco de preguntas",
+      "description": "Salida:\n- Decision (DB vs JSON/CSV vs Google Sheet) + pros/cons + 1 ejemplo.\n\nCriterio:\n- Permite que la persona no-dev aporte sin tocar codigo.\n",
+      "labels": ["data", "spike"],
+      "components": ["data"],
+      "epicAlias": "EPIC_B",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Importador de preguntas (CSV/Sheets -> Supabase)",
+      "description": "AC:\n- Importa preguntas con validacion (schema) y reporte de errores.\n- Soporta tags: examId, skillId, dificultad.\n",
+      "labels": ["data"],
+      "components": ["data", "backend"],
+      "epicAlias": "EPIC_B",
+      "owner": "tech"
+    },
+    {
+      "type": "Story",
+      "summary": "[STORY] Seed de contenido para dev",
+      "description": "AC:\n- Script/comando para cargar preguntas de ejemplo al entorno dev.\n",
+      "labels": ["data"],
+      "components": ["data"],
+      "epicAlias": "EPIC_B",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Validacion de preguntas (schema) antes de guardar",
+      "description": "AC:\n- Bloquea preguntas invalidas (options/correct/explanation).\n- Log de errores util (id, campo, motivo).\n",
+      "labels": ["backend"],
+      "components": ["backend", "data"],
+      "epicAlias": "EPIC_B",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Story",
+      "summary": "[STORY] Resolver 1 pregunta end-to-end (guardando intento)",
+      "description": "AC:\n- Renderiza pregunta + alternativas.\n- Permite seleccionar y confirmar.\n- Muestra feedback.\n- Guarda intento (correcta/incorrecta + habilidad) y actualiza progreso.\n",
+      "labels": ["frontend", "backend"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_A",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Modelo de intentos por pregunta (para progreso/analitica)",
+      "description": "AC:\n- Tabla/coleccion para intentos: user, questionId, examId, skillId, correcto, fecha.\n- Query para stats por habilidad y por dia.\n",
+      "labels": ["data"],
+      "components": ["data", "backend"],
+      "epicAlias": "EPIC_A",
+      "owner": "tech"
+    },
+    {
+      "type": "Story",
+      "summary": "[STORY] Estados de carga y errores visibles",
+      "description": "AC:\n- Loading visible.\n- Error visible.\n- Boton reintentar.\n",
+      "labels": ["frontend"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_A",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[CONTENT] Set de diagnostico (por prueba) + criterios",
+      "description": "Entregable:\n- 10-15 preguntas por prueba (Lectura/M1/M2) con habilidad + dificultad.\n- Criterios para interpretar resultados.\n",
+      "labels": ["content"],
+      "components": ["content"],
+      "epicAlias": "EPIC_C",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[COPY] Copy onboarding/diagnostico (preguntas + mensajes)",
+      "description": "Entregable:\n- Textos finales para onboarding: meta, fecha, nivel, recomendaciones.\n",
+      "labels": ["ux-copy"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_C",
+      "owner": "partner"
+    },
+    {
+      "type": "Story",
+      "summary": "[STORY] Diagnostico rapido al ingresar",
+      "description": "AC:\n- Flujo de diagnostico con 10-15 preguntas.\n- Guarda resultados y muestra recomendacion inicial.\n",
+      "labels": ["frontend", "backend"],
+      "components": ["frontend", "backend", "data"],
+      "epicAlias": "EPIC_C",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Plan semanal recomendado (reglas v1)",
+      "description": "AC:\n- Reglas simples: priorizar habilidades mas bajas vs meta.\n- Se refleja en Planner.\n",
+      "labels": ["backend"],
+      "components": ["backend", "data"],
+      "epicAlias": "EPIC_C",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[COPY] Mensajes de racha, logros y recordatorios",
+      "description": "Entregable:\n- 20-30 mensajes cortos (streak, progreso, aviso de premium).\n",
+      "labels": ["ux-copy"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_D",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Streak: reglas claras + fix edge cases",
+      "description": "AC:\n- No se rompe por cambios de zona horaria.\n- Historial consistente.\n",
+      "labels": ["backend"],
+      "components": ["backend", "data"],
+      "epicAlias": "EPIC_D",
+      "owner": "tech"
+    },
+    {
+      "type": "Feature",
+      "summary": "[FEATURE] Resumen semanal (progreso + recomendaciones)",
+      "description": "AC:\n- Vista dentro de la app con resumen semanal.\n- Incluye recomendacion de practica.\n",
+      "labels": ["frontend"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_D",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Recordatorio por email (1/semana) - v1",
+      "description": "AC:\n- Envia email semanal con resumen y CTA a practicar.\n- Opt-out basico.\n",
+      "labels": ["infra"],
+      "components": ["infra", "backend"],
+      "epicAlias": "EPIC_D",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[COPY] Microcopy del flujo de practica",
+      "description": "Entregable:\n- Textos finales para: botones, feedback correcto/incorrecto, siguiente, vacio, error de red.\n",
+      "labels": ["ux-copy"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_E",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[QA] Smoke test (checklist) del flujo base",
+      "description": "Entregable:\n- Checklist 10-15 pasos + 3 casos negativos.\n",
+      "labels": ["qa"],
+      "components": ["qa"],
+      "epicAlias": "EPIC_E",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[QA] Test de usabilidad con 5 estudiantes",
+      "description": "Entregable:\n- Guion + criterios + notas por participante + top 10 problemas.\n",
+      "labels": ["qa", "ux"],
+      "components": ["qa"],
+      "epicAlias": "EPIC_E",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Corregir caracteres (UTF-8 mojibake) en UI",
+      "description": "AC:\n- Textos se ven correctos (no 'Ã³').\n- Normalizar encoding de archivos.\n",
+      "labels": ["frontend"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_E",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Manejo de errores global + logging",
+      "description": "AC:\n- Errores de API con mensaje visible.\n- Logging para debug.\n",
+      "labels": ["frontend"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_E",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[QA] Registrar issues del smoke test",
+      "description": "AC:\n- Cada bug con pasos de reproduccion + esperado/actual + evidencia.\n",
+      "labels": ["qa"],
+      "components": ["qa"],
+      "epicAlias": "EPIC_E",
+      "owner": "partner"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[BIZ] Definir planes (Free/Premium) + lista de features",
+      "description": "Entregable:\n- Lista de features por plan.\n- Que queda premium (IA, packs, analytics, etc).\n",
+      "labels": ["revenue"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_F",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[BIZ] Benchmark precios + propuesta (mensual/anual)",
+      "description": "Entregable:\n- 5 competidores + precios.\n- Propuesta final con justificacion.\n",
+      "labels": ["revenue"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_F",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[COPY] Copy para Pricing + Paywall + FAQ",
+      "description": "Entregable:\n- Titulares, bullets de valor, objeciones, FAQ (cancelacion, pago, etc).\n",
+      "labels": ["ux-copy", "revenue"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_F",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[BIZ] Configurar productos y precios en Stripe",
+      "description": "Entregable:\n- Producto + Price IDs (mensual/anual) listos para usar en env vars.\n",
+      "labels": ["revenue"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_F",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[LEGAL] Politica de cancelacion y reembolso",
+      "description": "Entregable:\n- Texto corto + FAQ.\n",
+      "labels": ["legal", "revenue"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_F",
+      "owner": "partner"
+    },
+    {
+      "type": "Spike",
+      "summary": "[SPIKE] Arquitectura de pagos (Stripe + Supabase)",
+      "description": "Salida:\n- Decision: Edge Functions vs server propio.\n- Lista de endpoints/webhooks.\n",
+      "labels": ["revenue", "spike"],
+      "components": ["backend", "infra"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[DATA] Tablas billing + entitlements",
+      "description": "AC:\n- billing_customers, billing_subscriptions, entitlements, usage_ai.\n- Indices basicos.\n",
+      "labels": ["data", "revenue"],
+      "components": ["data"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Feature",
+      "summary": "[FEATURE] Checkout de suscripcion con Stripe",
+      "description": "AC:\n- Crear checkout session.\n- Redirigir y manejar success/cancel.\n",
+      "labels": ["revenue"],
+      "components": ["backend", "frontend", "infra"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Webhooks Stripe -> actualizar entitlements",
+      "description": "AC:\n- Verifica firma.\n- Maneja events: checkout.session.completed, customer.subscription.*\n- Actualiza DB.\n",
+      "labels": ["revenue", "backend"],
+      "components": ["backend", "infra", "data"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Story",
+      "summary": "[STORY] Paywall + gating de features premium",
+      "description": "AC:\n- Detecta entitlement premium.\n- Bloquea y muestra upsell.\n",
+      "labels": ["revenue", "frontend"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Pantalla 'Mi suscripcion' + Customer Portal",
+      "description": "AC:\n- Ver estado actual.\n- Boton 'Gestionar' (portal Stripe).\n",
+      "labels": ["revenue", "frontend"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Manejo de estados de suscripcion (trial/past_due/canceled)",
+      "description": "AC:\n- UI consistente.\n- Reintentos y mensajes claros.\n",
+      "labels": ["revenue"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Limites de IA (credits) + contador de uso",
+      "description": "AC:\n- Free: limite diario.\n- Premium: limite mayor o ilimitado.\n- Bloquea y muestra paywall al exceder.\n",
+      "labels": ["revenue", "ai"],
+      "components": ["backend", "frontend", "data"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Admin: otorgar premium manual (soporte)",
+      "description": "AC:\n- Permite activar premium por email y expiracion.\n",
+      "labels": ["revenue", "ops"],
+      "components": ["backend", "data"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[QA] Test compra/cancelacion end-to-end",
+      "description": "AC:\n- Compra (mensual/anual), cancelacion, reactivacion.\n- Validar entitlements.\n",
+      "labels": ["qa", "revenue"],
+      "components": ["qa"],
+      "epicAlias": "EPIC_F",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[COPY] Actualizar Landing (propuesta de valor + CTA a premium)",
+      "description": "Entregable:\n- Cambiar 'gratis para siempre' por propuesta real.\n- Seccion pricing/beneficios.\n",
+      "labels": ["growth", "ux-copy"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_G",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[MARKETING] Plan de lanzamiento 30 dias (TikTok/IG)",
+      "description": "Entregable:\n- 30 ideas + guiones + CTA.\n",
+      "labels": ["growth"],
+      "components": ["content"],
+      "epicAlias": "EPIC_G",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[MARKETING] SEO: keywords + estructura de paginas",
+      "description": "Entregable:\n- Lista keywords + 10 paginas objetivo.\n",
+      "labels": ["growth", "seo"],
+      "components": ["content"],
+      "epicAlias": "EPIC_G",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[MARKETING] Programa de referidos (reglas + copy)",
+      "description": "Entregable:\n- Incentivo (ej: 1 semana premium) + reglas.\n- Copy para invitar.\n",
+      "labels": ["growth", "revenue"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_G",
+      "owner": "partner"
+    },
+    {
+      "type": "Spike",
+      "summary": "[SPIKE] SEO: Router/SSR vs SPA (decision)",
+      "description": "Salida:\n- Decision tecnica (mantener SPA / agregar router / SSR).\n",
+      "labels": ["growth", "spike"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_G",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Pagina Pricing (con CTA a checkout)",
+      "description": "AC:\n- Muestra planes.\n- CTA inicia checkout.\n",
+      "labels": ["growth", "revenue"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_G",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Captura de email (waitlist) + almacenamiento",
+      "description": "AC:\n- Form simple + guarda en DB.\n- Evita duplicados.\n",
+      "labels": ["growth"],
+      "components": ["frontend", "backend", "data"],
+      "epicAlias": "EPIC_G",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] OpenGraph + meta tags basicos",
+      "description": "AC:\n- OG title/description/image.\n- Favicon y title consistentes.\n",
+      "labels": ["growth"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_G",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Referidos v1: codigo simple por usuario",
+      "description": "AC:\n- Genera codigo.\n- Al usarlo: otorga beneficio.\n",
+      "labels": ["growth", "revenue"],
+      "components": ["backend", "data", "frontend"],
+      "epicAlias": "EPIC_G",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[BIZ] Definir KPIs + funnel (activacion/retencion/conversion)",
+      "description": "Entregable:\n- North star metric.\n- Funnel con definiciones.\n",
+      "labels": ["analytics"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_H",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Integrar PostHog o GA4",
+      "description": "AC:\n- Configurar proyecto.\n- Identificar usuario (sin PII sensible).\n",
+      "labels": ["analytics"],
+      "components": ["frontend", "infra"],
+      "epicAlias": "EPIC_H",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Track eventos clave (signup, first_practice, paywall, checkout, purchase)",
+      "description": "AC:\n- Eventos con propiedades basicas (examId, skillId, plan).\n",
+      "labels": ["analytics"],
+      "components": ["frontend", "backend"],
+      "epicAlias": "EPIC_H",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Dashboard funnel basico (PostHog)",
+      "description": "AC:\n- Visualizar conversion por etapa.\n",
+      "labels": ["analytics"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_H",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[TECH] Feature flags (experimentos paywall)",
+      "description": "AC:\n- Habilitar/deshabilitar features sin redeploy (si es posible).\n",
+      "labels": ["analytics"],
+      "components": ["backend", "frontend"],
+      "epicAlias": "EPIC_H",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[LEGAL] Terminos y condiciones",
+      "description": "Entregable:\n- Terminos para uso de la plataforma.\n",
+      "labels": ["legal"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_I",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[LEGAL] Politica de privacidad",
+      "description": "Entregable:\n- Datos recolectados, uso, retencion, contacto.\n",
+      "labels": ["legal"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_I",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[LEGAL] Disclaimers educativos (no garantias)",
+      "description": "Entregable:\n- Texto visible en landing y/o settings.\n",
+      "labels": ["legal"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_I",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[SEC] Activar RLS y politicas en Supabase",
+      "description": "AC:\n- RLS en usuarios/sesiones/streak/planner/banco_ia.\n- Policies: cada usuario ve solo sus datos.\n",
+      "labels": ["security"],
+      "components": ["data", "backend"],
+      "epicAlias": "EPIC_I",
+      "owner": "tech"
+    },
+    {
+      "type": "Spike",
+      "summary": "[SPIKE] Identidad: email vs auth.uid (decision)",
+      "description": "Salida:\n- Decision de PK y migracion (o mitigaciones si se queda email).\n",
+      "labels": ["security", "spike"],
+      "components": ["data"],
+      "epicAlias": "EPIC_I",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[SEC] Proteger endpoint IA (GAS) con secret + cuotas",
+      "description": "AC:\n- Requiere secret.\n- Rate limit basico por usuario.\n",
+      "labels": ["security", "ai"],
+      "components": ["backend", "infra"],
+      "epicAlias": "EPIC_I",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[SEC] Limitar generacion IA desde frontend (anti-abuso)",
+      "description": "AC:\n- Debounce + max requests.\n- Manejo de errores y reintentos.\n",
+      "labels": ["security", "ai"],
+      "components": ["frontend"],
+      "epicAlias": "EPIC_I",
+      "owner": "tech"
+    },
+
+    {
+      "type": "Task",
+      "summary": "[OPS] FAQ y base de conocimiento",
+      "description": "Entregable:\n- FAQ: cuenta, pagos, IA, errores comunes.\n",
+      "labels": ["ops"],
+      "components": ["content", "ux-copy"],
+      "epicAlias": "EPIC_J",
+      "owner": "partner"
+    },
+    {
+      "type": "Task",
+      "summary": "[OPS] Templates de soporte (respuestas tipo)",
+      "description": "Entregable:\n- 10 respuestas para: reset pass, pago, cancelacion, bugs.\n",
+      "labels": ["ops"],
+      "components": ["ux-copy"],
+      "epicAlias": "EPIC_J",
+      "owner": "partner"
+    },
+    {
+      "type": "Spike",
+      "summary": "[SPIKE] Hosting + deploy (decision)",
+      "description": "Salida:\n- Donde se despliega (Vercel/Netlify/VPS) + costos.\n",
+      "labels": ["infra", "spike"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_J",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[INFRA] Deploy prod + variables de entorno",
+      "description": "AC:\n- Deploy automatizado.\n- Env vars seguras.\n",
+      "labels": ["infra"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_J",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[INFRA] Dominio + SSL",
+      "description": "AC:\n- Dominio propio apuntando a prod.\n",
+      "labels": ["infra"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_J",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[INFRA] Monitoreo uptime + alertas",
+      "description": "AC:\n- Alerta por caida.\n",
+      "labels": ["infra"],
+      "components": ["infra"],
+      "epicAlias": "EPIC_J",
+      "owner": "tech"
+    },
+    {
+      "type": "Task",
+      "summary": "[INFRA] Backups de base de datos (Supabase)",
+      "description": "AC:\n- Backup programado y restauracion probada.\n",
+      "labels": ["infra"],
+      "components": ["infra", "data"],
+      "epicAlias": "EPIC_J",
+      "owner": "tech"
+    }
+  ]
+}
+
