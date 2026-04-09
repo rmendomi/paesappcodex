@@ -1,0 +1,32 @@
+name: paes-app
+
+services:
+  app-dev:
+    build:
+      context: .
+      target: dev
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    env_file:
+      - .env
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    profiles:
+      - dev
+
+  app-prod:
+    build:
+      context: .
+      target: prod
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_GAS_URL: ${VITE_GAS_URL}
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    profiles:
+      - prod
