@@ -135,6 +135,7 @@ function handleRequest(e) {
       case 'savePlannerProgress': result = savePlannerProgress(params); break;
       case 'getLeaderboard':      result = getLeaderboard(params);      break;
       case 'generateQuestion':    result = generateQuestion(params);    break;
+      case 'generateStudyPlan':   result = generateStudyPlan(params);   break;
       default: result = { error: 'Acción desconocida: ' + params.action };
     }
 
@@ -566,4 +567,102 @@ function generateQuestion(p) {
   saveToAIBank(questions, examId, skillId, p.userEmail);
 
   return { ok: true, questions: questions, provider: AI_PROVIDER, count: questions.length };
+}
+
+// ── Generación de plan de estudio personalizado (enriquecimiento IA) ─────────
+// Recibe el plan heurístico ya construido + contexto del estudiante.
+// Devuelve un análisis personalizado y tips específicos para su objetivo.
+
+function generateStudyPlan(p) {
+  var name             = p.name || 'el estudiante';
+  var progressStats    = safeJSON(p.progressStats, {});
+  var targets          = safeJSON(p.targets, {});
+  var objetivoPrincipal = safeJSON(p.objetivoPrincipal, null);
+  var heuristicAnalysis = p.heuristicAnalysis || '';
+
+  var examNames = {
+    lectora:  'Comprensión Lectora',
+    m1:       'Matemática M1',
+    m2:       'Matemática M2',
+    historia: 'Historia',
+    ciencias: 'Ciencias',
+  };
+
+  // Construir resumen de rendimiento para el prompt
+  var rendimientoLines = [];
+  var examIds = ['lectora', 'm1', 'm2', 'historia', 'ciencias'];
+  examIds.forEach(function(id) {
+    var stat   = progressStats[id] || {};
+    var target = targets[id] || 700;
+    var score  = stat.lastScore || 0;
+    var gap    = score > 0 ? target - score : '(sin datos)';
+    rendimientoLines.push(
+      examNames[id] + ': ' +
+      (score > 0 ? 'puntaje actual ' + score + ' pts, meta ' + target + ' pts, brecha ' + gap : '(sin datos aún)')
+    );
+  });
+
+  var objetivoTexto = '';
+  if (objetivoPrincipal && objetivoPrincipal.carrera_nombre) {
+    objetivoTexto = 'Objetivo académico: ' + objetivoPrincipal.carrera_nombre +
+      ' en ' + objetivoPrincipal.universidad_nombre +
+      (objetivoPrincipal.puntaje_corte ? ' (puntaje de corte histórico: ' + objetivoPrincipal.puntaje_corte + ' pts)' : '') + '.';
+  }
+
+  var prompt =
+    'Eres un tutor especialista en la PAES chilena (Prueba de Acceso a la Educación Superior).\n' +
+    'Debes escribir un análisis de estudio personalizado para ' + name + '.\n\n' +
+    'CONTEXTO DEL ESTUDIANTE:\n' +
+    rendimientoLines.join('\n') + '\n\n' +
+    (objetivoTexto ? objetivoTexto + '\n\n' : '') +
+    'ANÁLISIS BASE (ya calculado por el sistema): ' + heuristicAnalysis + '\n\n' +
+    'TU TAREA:\n' +
+    '1. Escribe un análisis motivador y personalizado en 2-3 oraciones (máx 80 palabras). Menciona la carrera objetivo si existe.\n' +
+    '2. Escribe exactamente 3 consejos prácticos y específicos (máx 20 palabras cada uno).\n\n' +
+    'FORMATO DE RESPUESTA — responde ÚNICAMENTE con JSON válido:\n' +
+    '{\n' +
+    '  "analysis": "texto del análisis aquí",\n' +
+    '  "tips": ["consejo 1", "consejo 2", "consejo 3"]\n' +
+    '}\n\n' +
+    'REGLAS:\n' +
+    '- Responde SOLO con el JSON, sin texto adicional ni markdown\n' +
+    '- Tono: motivador, directo y específico\n' +
+    '- No inventes puntajes ni datos que no estén en el contexto\n' +
+    '- Si no hay datos de rendimiento, basa los consejos en la carrera objetivo';
+
+  var raw;
+  try {
+    if (AI_PROVIDER === 'claude') {
+      raw = callClaude(prompt);
+    } else {
+      raw = callGemini(prompt);
+    }
+  } catch (e) {
+    return { error: e.toString() };
+  }
+
+  // Parsear respuesta JSON
+  var result;
+  try {
+    // Limpiar posibles bloques markdown
+    var cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    result = JSON.parse(cleaned);
+  } catch (_) {
+    // Intentar extraer JSON del texto
+    var match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { result = JSON.parse(match[0]); } catch (_) {}
+    }
+  }
+
+  if (!result || !result.analysis) {
+    return { error: 'La IA no devolvió un formato válido.' };
+  }
+
+  return {
+    ok:       true,
+    analysis: result.analysis,
+    tips:     Array.isArray(result.tips) ? result.tips : [],
+    provider: AI_PROVIDER,
+  };
 }

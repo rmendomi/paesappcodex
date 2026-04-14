@@ -19,6 +19,7 @@ import AdminDashboard  from './pages/AdminDashboard';
 import AdminUsuarios   from './pages/AdminUsuarios';
 import AdminPreguntas  from './pages/AdminPreguntas';
 import AdminSesiones   from './pages/AdminSesiones';
+import Onboarding      from './pages/Onboarding';
 import Sidebar         from './components/Sidebar';
 
 const studentPages = {
@@ -51,6 +52,7 @@ const PAGE_TITLES = {
   'admin-usuarios':   'Admin · Usuarios',
   'admin-preguntas':  'Admin · Banco de Preguntas',
   'admin-sesiones':   'Admin · Sesiones',
+  onboarding:         'Configuración inicial',
 };
 
 function getInitials(name) {
@@ -67,10 +69,14 @@ export default function App() {
 
   const { user, logout, authLoading } = useAuth();
 
-  // Si hay sesión activa al cargar, ir directo al dashboard
+  // Si hay sesión activa al cargar: ir a onboarding si es primer acceso, si no al dashboard
   useEffect(() => {
     if (!authLoading && user && (view === 'landing' || view === 'login' || view === 'register')) {
-      setView('dashboard');
+      if (user.onboardingCompletado === false) {
+        setView('onboarding');
+      } else {
+        setView('dashboard');
+      }
     }
   }, [user, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -106,6 +112,11 @@ export default function App() {
   if (view === 'landing')  return <Landing  onEnter={() => setView('login')} />;
   if (view === 'register') return <Register onBack={() => setView('landing')} onLogin={() => setView('login')} onSuccess={handleLogin} />;
   if (view === 'login')    return <Login    onLogin={handleLogin} onBack={() => setView('landing')} onRegister={() => setView('register')} />;
+
+  // ── Onboarding (primer acceso, sin sidebar) ───────────────────────────────
+  if (view === 'onboarding') {
+    return <Onboarding onComplete={() => setView('dashboard')} />;
+  }
 
   // ── Flujo de práctica (sin sidebar)
   if (view === 'practice') {

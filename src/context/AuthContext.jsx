@@ -32,10 +32,10 @@ function computeNextStreak(s) {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [sessions, setSessions] = useState([]);
-  const [streak, setStreak] = useState({ current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} });
-  const [planner, setPlanner] = useState({ weekId: '', planId: 'standard', progress: {} });
+  const [user,      setUser]      = useState(null);
+  const [sessions,  setSessions]  = useState([]);
+  const [streak,    setStreak]    = useState({ current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} });
+  const [planner,   setPlanner]   = useState({ weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
   const [leaderboard, setLeaderboard] = useState([]);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -53,11 +53,11 @@ export function AuthProvider({ children }) {
 
       const raw = data.streak || {};
       const normalized = {
-        current: Number(raw.current) || 0,
-        best: Number(raw.best) || 0,
-        totalDays: Number(raw.totalDays) || 0,
-        lastActivity: raw.lastActivity || '',
-        history: raw.history || {},
+        current:      Number(raw.current)    || 0,
+        best:         Number(raw.best)       || 0,
+        totalDays:    Number(raw.totalDays)  || 0,
+        lastActivity: raw.lastActivity       || '',
+        history:      raw.history            || {},
       };
       const next = computeNextStreak(normalized);
       setStreak(next);
@@ -65,7 +65,7 @@ export function AuthProvider({ children }) {
         api.updateStreak(email, next).catch(() => {});
       }
 
-      setPlanner(data.planner || { weekId: '', planId: 'standard', progress: {} });
+      setPlanner(data.planner || { weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
     } catch (err) {
       console.error('[AuthContext] loadUserData:', err);
     }
@@ -97,7 +97,7 @@ export function AuthProvider({ children }) {
         setUser(null);
         setSessions([]);
         setStreak({ current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} });
-        setPlanner({ weekId: '', planId: 'standard', progress: {} });
+        setPlanner({ weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
         setLeaderboard([]);
         if (active) setAuthLoading(false);
       }
@@ -189,19 +189,19 @@ export function AuthProvider({ children }) {
         if (prev.lastActivity === yday) {
           next = {
             ...prev,
-            current: prev.current + 1,
-            best: Math.max(prev.best, prev.current + 1),
+            current:      prev.current + 1,
+            best:         Math.max(prev.best, prev.current + 1),
             lastActivity: today,
-            totalDays: prev.totalDays + 1,
-            history: { ...prev.history, [today]: true },
+            totalDays:    prev.totalDays + 1,
+            history:      { ...prev.history, [today]: true },
           };
         } else {
           next = {
             ...prev,
-            current: 1,
+            current:      1,
             lastActivity: today,
-            totalDays: prev.totalDays + 1,
-            history: { ...prev.history, [today]: true },
+            totalDays:    prev.totalDays + 1,
+            history:      { ...prev.history, [today]: true },
           };
         }
 
@@ -214,14 +214,53 @@ export function AuthProvider({ children }) {
     [user]
   );
 
+  // Guardar progreso de checkboxes + contenido del plan
   const savePlannerProgress = useCallback(
-    async (weekId, planId, progress) => {
+    async (weekId, planId, progress, planContent) => {
       if (!user) return;
-      api.savePlannerProgress(user.email, weekId, planId, progress).catch(() => {});
-      setPlanner({ weekId, planId, progress });
+      api.savePlannerWithContent(user.email, weekId, planId, progress, planContent || planner.planContent).catch(() => {});
+      setPlanner((prev) => ({
+        ...prev,
+        weekId,
+        planId,
+        progress,
+        planContent: planContent !== undefined ? planContent : prev.planContent,
+      }));
+    },
+    [user, planner.planContent]
+  );
+
+  // Guardar objetivos académicos
+  const saveObjetivos = useCallback(
+    async (principal, secundarios) => {
+      if (!user) return;
+      await api.saveObjetivos(user.email, principal, secundarios);
+      setUser((prev) => ({
+        ...prev,
+        objetivoPrincipal:    principal,
+        objetivosSecundarios: secundarios,
+      }));
     },
     [user]
   );
+
+  // Guardar resultados de diagnóstico
+  const saveDiagnostico = useCallback(
+    async (resultados) => {
+      if (!user) return;
+      const result = await api.saveDiagnostico(user.email, resultados);
+      setUser((prev) => ({ ...prev, diagnosticoCompletado: true }));
+      return result;
+    },
+    [user]
+  );
+
+  // Marcar onboarding como completado
+  const completeOnboarding = useCallback(async () => {
+    if (!user) return;
+    await api.completeOnboarding(user.email);
+    setUser((prev) => ({ ...prev, onboardingCompletado: true }));
+  }, [user]);
 
   const fetchLeaderboard = useCallback(async () => {
     try {
@@ -239,9 +278,9 @@ export function AuthProvider({ children }) {
       const examSessions = sessions.filter((s) => s.examId === id);
       stats[id] = {
         attempted: examSessions.length,
-        correct: examSessions.reduce((sum, s) => sum + (Number(s.correct) || 0), 0),
+        correct:   examSessions.reduce((sum, s) => sum + (Number(s.correct) || 0), 0),
         lastScore: examSessions.length > 0 ? Number(examSessions[examSessions.length - 1].score) : 0,
-        trend: examSessions.slice(-5).map((s) => Number(s.score)),
+        trend:     examSessions.slice(-5).map((s) => Number(s.score)),
       };
     });
     return stats;
@@ -272,6 +311,9 @@ export function AuthProvider({ children }) {
         updateProfile,
         saveSession,
         savePlannerProgress,
+        saveObjetivos,
+        saveDiagnostico,
+        completeOnboarding,
         fetchLeaderboard,
       }}
     >

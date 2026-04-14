@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Save, User, Target, CheckCircle, Loader2, Plus, Minus } from 'lucide-react';
+import { Save, User, Target, CheckCircle, Loader2, Plus, Minus, Search, X, ChevronRight, GraduationCap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { exams } from '../data/catalogData';
 import { api } from '../api';
@@ -89,7 +89,7 @@ function resizeImageAsDataUrl(file, maxSide = 320, quality = 0.72) {
 }
 
 export default function Settings() {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, saveObjetivos } = useAuth();
 
   const initialTargets = user?.targets || DEFAULT_TARGETS;
 
@@ -108,6 +108,24 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  // ── Estado objetivos académicos ─────────────────────────────────────────────
+  const [showObjEditor,    setShowObjEditor]    = useState(false);
+  const [universidades,    setUniversidades]    = useState([]);
+  const [loadingUnis,      setLoadingUnis]      = useState(false);
+  const [objUniId,         setObjUniId]         = useState('');
+  const [objCarreras,      setObjCarreras]      = useState([]);
+  const [loadingObjCar,    setLoadingObjCar]    = useState(false);
+  const [uniSearch,        setUniSearch]        = useState('');
+  const [objSelectedCar,   setObjSelectedCar]   = useState(null);
+  const [savingObjetivos,  setSavingObjetivos]  = useState(false);
+  const [objSaved,         setObjSaved]         = useState(false);
+  // Secundarios en editor
+  const [secObjs,          setSecObjs]          = useState(user?.objetivosSecundarios || []);
+  const [addingSecIdx,     setAddingSecIdx]     = useState(-1);
+  const [secUniId,         setSecUniId]         = useState('');
+  const [secCarreras,      setSecCarreras]      = useState([]);
+  const [secUniSearch,     setSecUniSearch]     = useState('');
 
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
@@ -261,6 +279,85 @@ export default function Settings() {
       setProcessingPhoto(false);
       e.target.value = '';
     }
+  };
+
+  // Cargar universidades cuando se abre el editor
+  useEffect(() => {
+    if (!showObjEditor || universidades.length > 0) return;
+    setLoadingUnis(true);
+    api.getUniversidades()
+      .then(setUniversidades)
+      .catch(() => {})
+      .finally(() => setLoadingUnis(false));
+  }, [showObjEditor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cargar carreras al seleccionar universidad en objetivo principal
+  useEffect(() => {
+    if (!objUniId) { setObjCarreras([]); return; }
+    setLoadingObjCar(true);
+    api.getCarrerasByUniversidad(objUniId)
+      .then(setObjCarreras)
+      .catch(() => setObjCarreras([]))
+      .finally(() => setLoadingObjCar(false));
+  }, [objUniId]);
+
+  // Cargar carreras de secundario
+  useEffect(() => {
+    if (!secUniId) { setSecCarreras([]); return; }
+    api.getCarrerasByUniversidad(secUniId).then(setSecCarreras).catch(() => setSecCarreras([]));
+  }, [secUniId]);
+
+  const unisFiltradas = universidades.filter(u =>
+    u.nombre.toLowerCase().includes(uniSearch.toLowerCase()) ||
+    u.abbr?.toLowerCase().includes(uniSearch.toLowerCase())
+  );
+
+  const objUniSeleccionada = universidades.find(u => u.id === objUniId);
+
+  const handleSaveObjetivos = async () => {
+    setSavingObjetivos(true);
+    try {
+      const uni = universidades.find(u => u.id === objUniId);
+      const principal = objSelectedCar
+        ? {
+            carrera_id:         objSelectedCar.id,
+            universidad_id:     objUniId,
+            carrera_nombre:     objSelectedCar.nombre,
+            universidad_nombre: uni?.nombre || objUniId,
+            puntaje_corte:      objSelectedCar.puntaje_corte,
+            ponderaciones:      objSelectedCar.ponderaciones,
+          }
+        : user?.objetivoPrincipal || null;
+      await saveObjetivos(principal, secObjs.filter(Boolean));
+      setObjSaved(true);
+      setTimeout(() => { setObjSaved(false); setShowObjEditor(false); }, 1800);
+    } catch (err) {
+      console.error('[Settings:saveObjetivos]', err);
+    } finally {
+      setSavingObjetivos(false);
+    }
+  };
+
+  const addSecundario = (carrera, uniId) => {
+    const uni = universidades.find(u => u.id === uniId);
+    const obj = {
+      carrera_id:         carrera.id,
+      universidad_id:     uniId,
+      carrera_nombre:     carrera.nombre,
+      universidad_nombre: uni?.nombre || uniId,
+      puntaje_corte:      carrera.puntaje_corte,
+      ponderaciones:      carrera.ponderaciones,
+    };
+    setSecObjs(prev => {
+      const next = [...prev];
+      if (addingSecIdx >= 0) next[addingSecIdx] = obj;
+      else next.push(obj);
+      return next.slice(0, 2);
+    });
+    setAddingSecIdx(-1);
+    setSecUniId('');
+    setSecCarreras([]);
+    setSecUniSearch('');
   };
 
   const averageTarget = Math.round(
@@ -487,6 +584,198 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* ── Panel Objetivos Académicos ── */}
+        <div className="p-6 rounded-3xl" style={{ background: 'white', boxShadow: '0 2px 20px rgba(12,31,61,0.06)' }}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2">
+              <GraduationCap size={16} style={{ color: '#1d4ed8' }} />
+              <h2 className="font-display text-lg font-semibold" style={{ color: '#0c1f3d' }}>
+                Objetivo académico
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowObjEditor(e => !e); setSecObjs(user?.objetivosSecundarios || []); }}
+              className="text-xs font-semibold px-3 py-1.5 rounded-xl"
+              style={{ background: 'rgba(29,78,216,0.08)', color: '#1d4ed8' }}
+            >
+              {showObjEditor ? 'Cerrar' : 'Editar'}
+            </button>
+          </div>
+
+          {/* Objetivo principal actual */}
+          {user?.objetivoPrincipal ? (
+            <div className="p-3 rounded-xl mb-3"
+              style={{ background: 'rgba(29,78,216,0.06)', border: '1px solid rgba(29,78,216,0.15)' }}>
+              <p className="text-xs font-semibold" style={{ color: '#1d4ed8' }}>Principal</p>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: '#0c1f3d' }}>
+                {user.objetivoPrincipal.carrera_nombre}
+              </p>
+              <p className="text-xs" style={{ color: 'rgba(12,31,61,0.5)' }}>
+                {user.objetivoPrincipal.universidad_nombre}
+                {user.objetivoPrincipal.puntaje_corte ? ` · Corte: ${user.objetivoPrincipal.puntaje_corte} pts` : ''}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs mb-3" style={{ color: 'rgba(12,31,61,0.4)' }}>
+              No has configurado un objetivo. Define tu carrera y universidad meta para personalizar tu plan de estudio.
+            </p>
+          )}
+
+          {/* Secundarios actuales */}
+          {(user?.objetivosSecundarios || []).map((sec, i) => sec ? (
+            <div key={i} className="p-2.5 rounded-xl mb-2"
+              style={{ background: 'rgba(12,31,61,0.03)', border: '1px solid rgba(12,31,61,0.07)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'rgba(12,31,61,0.5)' }}>Secundaria {i + 1}</p>
+              <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>{sec.carrera_nombre}</p>
+              <p className="text-xs" style={{ color: 'rgba(12,31,61,0.45)' }}>{sec.universidad_nombre}</p>
+            </div>
+          ) : null)}
+
+          {/* Editor inline */}
+          {showObjEditor && (
+            <div className="mt-4 border-t pt-4 space-y-4" style={{ borderColor: 'rgba(12,31,61,0.08)' }}>
+              <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>Cambiar objetivo principal</p>
+
+              {/* Buscador universidad */}
+              {!objSelectedCar && (
+                <>
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(12,31,61,0.4)' }} />
+                    <input
+                      value={uniSearch}
+                      onChange={e => { setUniSearch(e.target.value); setObjUniId(''); }}
+                      placeholder="Buscar universidad…"
+                      className="w-full pl-8 pr-3 py-2.5 rounded-xl text-xs outline-none"
+                      style={{ background: '#f8faff', border: '1.5px solid rgba(12,31,61,0.1)', color: '#0c1f3d' }}
+                    />
+                  </div>
+                  {loadingUnis ? (
+                    <div className="py-3 text-center"><Loader2 size={14} className="animate-spin inline" style={{ color: '#1d4ed8' }} /></div>
+                  ) : (
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {unisFiltradas.slice(0, 10).map(u => (
+                        <button key={u.id} type="button"
+                          onClick={() => { setObjUniId(u.id); setUniSearch(''); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left hover:bg-blue-50 transition-colors"
+                          style={{ background: objUniId === u.id ? 'rgba(29,78,216,0.08)' : 'transparent', border: objUniId === u.id ? '1.5px solid rgba(29,78,216,0.25)' : '1.5px solid transparent' }}>
+                          <span className="text-base">{u.logo}</span>
+                          <div>
+                            <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>{u.abbr || u.nombre}</p>
+                            <p className="text-xs" style={{ color: 'rgba(12,31,61,0.4)' }}>{u.ciudad}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Carreras */}
+              {objUniId && !objSelectedCar && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setObjUniId('')} className="text-xs" style={{ color: '#1d4ed8' }}>← Volver</button>
+                    <span className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>{objUniSeleccionada?.abbr}</span>
+                  </div>
+                  {loadingObjCar ? (
+                    <Loader2 size={14} className="animate-spin" style={{ color: '#1d4ed8' }} />
+                  ) : (
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {objCarreras.map(c => (
+                        <button key={c.id} type="button" onClick={() => setObjSelectedCar(c)}
+                          className="w-full flex justify-between items-center px-3 py-2 rounded-xl text-xs hover:bg-blue-50 transition-colors"
+                          style={{ color: '#0c1f3d', border: '1px solid rgba(12,31,61,0.07)' }}>
+                          <span className="font-medium">{c.nombre}</span>
+                          <span style={{ color: 'rgba(12,31,61,0.4)' }}>{c.puntaje_corte} pts</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {objSelectedCar && (
+                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl"
+                  style={{ background: 'rgba(29,78,216,0.08)', border: '1.5px solid rgba(29,78,216,0.2)' }}>
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>{objSelectedCar.nombre}</p>
+                    <p className="text-xs" style={{ color: 'rgba(12,31,61,0.5)' }}>{objUniSeleccionada?.nombre}</p>
+                  </div>
+                  <button type="button" onClick={() => { setObjSelectedCar(null); setObjUniId(''); }}><X size={13} style={{ color: 'rgba(12,31,61,0.4)' }} /></button>
+                </div>
+              )}
+
+              {/* Secundarios */}
+              <div>
+                <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(12,31,61,0.6)' }}>Opciones secundarias</p>
+                {secObjs.map((sec, i) => sec ? (
+                  <div key={i} className="flex items-center justify-between px-2.5 py-2 rounded-xl mb-1.5"
+                    style={{ background: 'rgba(12,31,61,0.03)', border: '1px solid rgba(12,31,61,0.07)' }}>
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>{sec.carrera_nombre}</p>
+                      <p className="text-xs" style={{ color: 'rgba(12,31,61,0.45)' }}>{sec.universidad_nombre}</p>
+                    </div>
+                    <button type="button" onClick={() => setSecObjs(prev => prev.map((s, j) => j === i ? null : s).filter(Boolean))}>
+                      <X size={12} style={{ color: 'rgba(12,31,61,0.35)' }} />
+                    </button>
+                  </div>
+                ) : null)}
+
+                {secObjs.filter(Boolean).length < 2 && addingSecIdx === -1 && (
+                  <button type="button" onClick={() => setAddingSecIdx(secObjs.filter(Boolean).length)}
+                    className="text-xs font-semibold" style={{ color: '#1d4ed8' }}>
+                    + Agregar secundaria
+                  </button>
+                )}
+
+                {addingSecIdx >= 0 && (
+                  <div className="mt-2 p-2.5 rounded-xl" style={{ background: '#f8faff', border: '1.5px solid rgba(12,31,61,0.08)' }}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <p className="text-xs font-semibold" style={{ color: '#0c1f3d' }}>Nueva secundaria</p>
+                      <button type="button" onClick={() => { setAddingSecIdx(-1); setSecUniId(''); }}><X size={12} style={{ color: 'rgba(12,31,61,0.4)' }} /></button>
+                    </div>
+                    <div className="relative mb-1.5">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(12,31,61,0.4)' }} />
+                      <input value={secUniSearch} onChange={e => { setSecUniSearch(e.target.value); setSecUniId(''); }}
+                        placeholder="Universidad…" className="w-full pl-7 pr-2 py-1.5 rounded-lg text-xs outline-none"
+                        style={{ background: 'white', border: '1.5px solid rgba(12,31,61,0.1)', color: '#0c1f3d' }} />
+                    </div>
+                    {!secUniId ? (
+                      <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                        {universidades.filter(u => u.nombre.toLowerCase().includes(secUniSearch.toLowerCase())).slice(0, 6).map(u => (
+                          <button key={u.id} type="button" onClick={() => setSecUniId(u.id)}
+                            className="w-full text-left px-2 py-1 rounded text-xs hover:bg-blue-50" style={{ color: '#0c1f3d' }}>
+                            {u.logo} {u.abbr || u.nombre}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                        <button type="button" onClick={() => setSecUniId('')} className="text-xs mb-1" style={{ color: '#1d4ed8' }}>← Volver</button>
+                        {secCarreras.map(c => (
+                          <button key={c.id} type="button" onClick={() => addSecundario(c, secUniId)}
+                            className="w-full flex justify-between px-2 py-1 rounded text-xs hover:bg-blue-50" style={{ color: '#0c1f3d' }}>
+                            <span className="font-medium truncate">{c.nombre}</span>
+                            <span style={{ color: 'rgba(12,31,61,0.4)' }}>{c.puntaje_corte}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button type="button" onClick={handleSaveObjetivos} disabled={savingObjetivos}
+                className="w-full py-2.5 rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.01] disabled:opacity-60"
+                style={{ background: objSaved ? 'linear-gradient(135deg,#10b981,#059669)' : 'linear-gradient(135deg,#0c1f3d,#1d4ed8)' }}>
+                {savingObjetivos ? <><Loader2 size={13} className="animate-spin inline mr-1.5" />Guardando…</> : objSaved ? '✓ Objetivos guardados' : 'Guardar objetivos'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Panel Metas de puntaje ── */}
         <div
           className="p-6 rounded-3xl"
           style={{ background: 'white', boxShadow: '0 2px 20px rgba(12,31,61,0.06)' }}

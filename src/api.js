@@ -186,23 +186,40 @@ function normalizeLeaderboardEntry(entry, fallbackRank) {
   };
 }
 
-function buildHeuristicStudyPlan({ name, progressStats, targets }) {
+function buildHeuristicStudyPlan({ name, progressStats, targets, objetivoPrincipal }) {
   const examIds = ['lectora', 'm1', 'm2', 'historia', 'ciencias'];
   const targetMap = { ...DEFAULT_TARGETS, ...(targets || {}) };
+
+  // Si hay objetivo principal con puntaje de corte, ajustar targets mínimos
+  if (objetivoPrincipal?.puntaje_corte) {
+    const ponds = objetivoPrincipal.ponderaciones || {};
+    // Subir targets de los exámenes que pondera la carrera objetivo
+    Object.entries(ponds).forEach(([examId, weight]) => {
+      if (weight > 0 && examIds.includes(examId)) {
+        const needed = Math.round(objetivoPrincipal.puntaje_corte / weight * 0.9);
+        if (needed > (targetMap[examId] || 0)) {
+          targetMap[examId] = Math.min(needed, 1000);
+        }
+      }
+    });
+  }
 
   const ranked = examIds
     .map((id) => {
       const lastScore = Number(progressStats?.[id]?.lastScore) || 0;
       const target = Number(targetMap[id]) || 700;
       const gap = lastScore > 0 ? Math.max(0, target - lastScore) : 1000;
-      return { id, lastScore, target, gap };
+      // Amplificar prioridad para exámenes que pondera la carrera objetivo
+      const objWeight = objetivoPrincipal?.ponderaciones?.[id] || 0;
+      return { id, lastScore, target, gap, objWeight };
     })
-    .sort((a, b) => b.gap - a.gap);
+    .sort((a, b) => (b.gap + b.objWeight * 200) - (a.gap + a.objWeight * 200));
 
   const rotation = [];
   ranked.forEach((r) => {
     rotation.push(r.id);
-    if (r.gap >= 120) rotation.push(r.id);
+    // Doble slot para exámenes con brecha alta O que pondera mucho la carrera
+    if (r.gap >= 100 || r.objWeight >= 0.3) rotation.push(r.id);
   });
   if (rotation.length === 0) rotation.push(...examIds);
 
@@ -230,16 +247,28 @@ function buildHeuristicStudyPlan({ name, progressStats, targets }) {
   );
 
   const topWeak = ranked.slice(0, 2).map((r) => EXAM_NAMES[r.id] || r.id);
-  const analysis =
-    topWeak.length > 0
-      ? `Priorizaremos ${topWeak.join(' y ')} por su mayor brecha respecto a tu meta. Mantendremos sesiones cortas y frecuentes para consolidar avance sin sobrecarga.`
-      : 'Distribuiremos sesiones equilibradas para mantener progreso sostenido en todas las pruebas PAES.';
+
+  let analysis = '';
+  if (objetivoPrincipal?.carrera_nombre) {
+    const meta = objetivoPrincipal;
+    const gap1 = ranked[0] ? `${EXAM_NAMES[ranked[0].id]} (brecha: ${ranked[0].gap} pts)` : '';
+    analysis = `Tu objetivo es ${meta.carrera_nombre} en ${meta.universidad_nombre}` +
+      (meta.puntaje_corte ? ` (corte histórico: ${meta.puntaje_corte} pts)` : '') +
+      `. Priorizaremos ${gap1}` +
+      (topWeak[1] ? ` y ${topWeak[1]}` : '') +
+      ` para cerrar la brecha con tu meta. Mantén constancia: 6 días de estudio con descanso el domingo.`;
+  } else if (topWeak.length > 0) {
+    analysis = `Priorizaremos ${topWeak.join(' y ')} por su mayor brecha respecto a tu meta. Mantendremos sesiones cortas y frecuentes para consolidar avance sin sobrecarga.`;
+  } else {
+    analysis = 'Distribuiremos sesiones equilibradas para mantener progreso sostenido en todas las pruebas PAES.';
+  }
 
   return {
-    name: `Plan IA Personalizado${name ? ` para ${name}` : ''}`,
+    name: `Plan Personalizado${name ? ` para ${name}` : ''}`,
     icon: 'AI',
     hoursPerWeek: Math.max(1, Math.round(totalMinutes / 60)),
     analysis,
+    generatedBy: 'heuristic',
     days,
   };
 }
@@ -290,20 +319,24 @@ export const api = {
     await supabase.from('usuarios').update({ last_login: new Date().toISOString() }).eq('email', email);
 
     return {
-      email:          data.email,
-      name:           data.name,
-      picture:        data.picture || null,
-      school:         data.school,
-      gradeLevel:     data.grade_level,
-      targetScore:    data.target_score,
-      targets:        data.targets || DEFAULT_TARGETS,
-      anioNacimiento: data.anio_nacimiento,
-      situacion:      data.situacion,
-      region:         data.region,
-      colegioId:      data.colegio_id,
-      createdAt:      data.created_at,
-      lastLogin:      new Date().toISOString(),
-      role:           data.role || 'student',
+      email:                  data.email,
+      name:                   data.name,
+      picture:                data.picture || null,
+      school:                 data.school,
+      gradeLevel:             data.grade_level,
+      targetScore:            data.target_score,
+      targets:                data.targets || DEFAULT_TARGETS,
+      anioNacimiento:         data.anio_nacimiento,
+      situacion:              data.situacion,
+      region:                 data.region,
+      colegioId:              data.colegio_id,
+      createdAt:              data.created_at,
+      lastLogin:              new Date().toISOString(),
+      role:                   data.role || 'student',
+      objetivoPrincipal:      data.objetivo_principal      || null,
+      objetivosSecundarios:   data.objetivos_secundarios   || [],
+      onboardingCompletado:   data.onboarding_completado   ?? false,
+      diagnosticoCompletado:  data.diagnostico_completado  ?? false,
     };
   },
 
@@ -422,8 +455,14 @@ export const api = {
 
     const plan = planRes.data;
     const planner = plan
-      ? { weekId: plan.week_id || '', planId: plan.plan_id || 'standard', progress: plan.progress || {} }
-      : { weekId: '', planId: 'standard', progress: {} };
+      ? {
+          weekId:      plan.week_id     || '',
+          planId:      plan.plan_id     || 'standard',
+          progress:    plan.progress    || {},
+          planContent: plan.plan_content || null,
+          generatedBy: plan.generated_by || 'heuristic',
+        }
+      : { weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' };
 
     return { ok: true, sessions, streak, planner };
   },
@@ -696,12 +735,158 @@ export const api = {
     return { sesiones: data || [], total: count ?? 0 };
   },
 
-  async generateStudyPlan({ name, progressStats, targets }) {
-    const plan = buildHeuristicStudyPlan({ name, progressStats, targets });
+  // ── Universidades y Carreras ───────────────────────────────────────────────
+
+  async getUniversidades() {
+    const { data, error } = await supabase
+      .from('universidades')
+      .select('id, nombre, abbr, tipo, ciudad, acreditacion, descripcion, color, logo')
+      .order('tipo')
+      .order('nombre');
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  async getCarrerasByUniversidad(universidadId) {
+    const { data, error } = await supabase
+      .from('carreras')
+      .select('id, nombre, ponderaciones, puntaje_corte, vacantes, anio')
+      .eq('universidad_id', universidadId)
+      .order('puntaje_corte', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  async searchCarreras(query) {
+    const { data, error } = await supabase
+      .from('carreras')
+      .select('id, nombre, puntaje_corte, universidad_id, universidades(nombre, abbr, ciudad)')
+      .ilike('nombre', `%${query}%`)
+      .order('puntaje_corte', { ascending: false })
+      .limit(30);
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  // ── Objetivos académicos ───────────────────────────────────────────────────
+
+  async saveObjetivos(email, objetivoPrincipal, objetivosSecundarios) {
+    const { error } = await supabase
+      .from('usuarios')
+      .update({
+        objetivo_principal:    objetivoPrincipal   || null,
+        objetivos_secundarios: objetivosSecundarios || [],
+      })
+      .eq('email', email);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // ── Diagnóstico inicial ────────────────────────────────────────────────────
+
+  async saveDiagnostico(email, resultados) {
+    // Obtener versión más alta existente
+    const { data: existing } = await supabase
+      .from('diagnostico')
+      .select('version')
+      .eq('user_email', email)
+      .order('version', { ascending: false })
+      .limit(1);
+
+    const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1;
+
+    const { error } = await supabase
+      .from('diagnostico')
+      .insert({
+        user_email:   email,
+        resultados,
+        version:      nextVersion,
+        completed_at: new Date().toISOString(),
+      });
+    if (error) throw new Error(error.message);
+
+    // Marcar usuario como con diagnóstico completado
+    await supabase
+      .from('usuarios')
+      .update({ diagnostico_completado: true })
+      .eq('email', email);
+
+    return { ok: true, version: nextVersion };
+  },
+
+  async getDiagnostico(email) {
+    const { data, error } = await supabase
+      .from('diagnostico')
+      .select('*')
+      .eq('user_email', email)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data || null;
+  },
+
+  async completeOnboarding(email) {
+    const { error } = await supabase
+      .from('usuarios')
+      .update({ onboarding_completado: true })
+      .eq('email', email);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // ── Plan de estudio ─── híbrido heurístico + IA opcional ──────────────────
+
+  async generateStudyPlan({ name, progressStats, targets, objetivoPrincipal }) {
+    // 1. Motor heurístico determinista (siempre funciona)
+    const plan = buildHeuristicStudyPlan({ name, progressStats, targets, objetivoPrincipal });
     if (!plan?.days || plan.days.length !== 7) {
       throw new Error('No se pudo construir el plan semanal.');
     }
+
+    // 2. Enriquecer con IA vía GAS (opcional – si falla, retorna plan heurístico)
+    const gasUrl = import.meta.env.VITE_GAS_URL;
+    if (gasUrl) {
+      try {
+        const url = `${gasUrl}?action=generateStudyPlan`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'generateStudyPlan',
+            name,
+            progressStats,
+            targets,
+            objetivoPrincipal,
+            heuristicAnalysis: plan.analysis,
+          }),
+        });
+        const aiResult = await resp.json();
+        if (aiResult?.ok && aiResult?.analysis) {
+          plan.analysis     = aiResult.analysis;
+          plan.tips         = aiResult.tips || [];
+          plan.generatedBy  = 'ai';
+        }
+      } catch (_) {
+        // IA no disponible — usar plan heurístico sin interrumpir
+      }
+    }
+
     return { ok: true, plan };
+  },
+
+  async savePlannerWithContent(email, weekId, planId, progress, planContent) {
+    const { error } = await supabase.from('planner').upsert({
+      user_email:   email,
+      week_id:      weekId       || '',
+      plan_id:      planId       || 'standard',
+      progress:     progress     || {},
+      plan_content: planContent  || null,
+      generated_by: planContent?.generatedBy || 'heuristic',
+      updated_at:   new Date().toISOString(),
+    }, { onConflict: 'user_email' });
+    if (error) throw new Error(error.message);
+    return { ok: true };
   },
 
   async generateQuestions({ examId, skillId, count, userEmail, forceAI = false }) {
