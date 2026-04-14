@@ -251,6 +251,8 @@ export function AuthProvider({ children }) {
     return [...sessions].reverse().slice(0, 5);
   }, [sessions]);
 
+  const isAdmin = user?.role === 'admin';
+
   return (
     <AuthContext.Provider
       value={{
@@ -262,6 +264,7 @@ export function AuthProvider({ children }) {
         authLoading,
         progressStats,
         recentActivity,
+        isAdmin,
         login,
         logout,
         register,

@@ -1,4 +1,4 @@
-import { LayoutDashboard, BookOpen, TrendingUp, Settings, LogOut, GraduationCap, Building2, Calendar, Trophy, Flame, X } from 'lucide-react';
+import { LayoutDashboard, BookOpen, TrendingUp, Settings, LogOut, GraduationCap, Building2, Calendar, Trophy, Flame, X, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const navGroups = [
@@ -33,7 +33,7 @@ function getInitials(name) {
 }
 
 export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose }) {
-  const { user, streak } = useAuth();
+  const { user, streak, isAdmin } = useAuth();
 
   const initials    = getInitials(user?.name);
   const displayName = user?.name || 'Estudiante';
@@ -166,6 +166,43 @@ export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose
             </div>
           ))}
         </nav>
+
+        {/* Sección Administración — solo para admins */}
+        {isAdmin && (
+          <div className="px-3 pb-2">
+            <div className="border-t border-white/10 pt-4">
+              <p
+                className="px-4 mb-1.5 text-xs font-semibold uppercase tracking-wider"
+                style={{ color: 'rgba(255,255,255,0.2)' }}
+              >
+                Administración
+              </p>
+              {[
+                { id: 'admin',           label: 'Panel Admin' },
+                { id: 'admin-usuarios',  label: 'Usuarios' },
+                { id: 'admin-preguntas', label: 'Banco de Preguntas' },
+                { id: 'admin-sesiones',  label: 'Sesiones' },
+              ].map(({ id, label }) => {
+                const active = current === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleNav(id)}
+                    className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl text-xs font-medium transition-all duration-200 ${
+                      active ? 'text-white' : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+                    }`}
+                    style={active
+                      ? { borderLeft: '3px solid #a78bfa', background: 'rgba(124,58,237,0.15)' }
+                      : { borderLeft: '3px solid transparent' }}
+                  >
+                    <ShieldCheck size={14} style={active ? { color: '#a78bfa' } : {}} />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Parte inferior */}
         <div className="px-3 pb-6">

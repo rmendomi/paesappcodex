@@ -1,44 +1,56 @@
 import { useState, useEffect } from 'react';
 import { Menu } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
-import Landing       from './pages/Landing';
-import Login         from './pages/Login';
-import Register      from './pages/Register';
-import Dashboard     from './pages/Dashboard';
-import Exams         from './pages/Exams';
-import Practice      from './pages/Practice';
-import Results       from './pages/Results';
-import Progress      from './pages/Progress';
-import Proyecciones  from './pages/Proyecciones';
-import Settings      from './pages/Settings';
-import Calculator    from './pages/Calculator';
-import Universities  from './pages/Universities';
-import Planner       from './pages/Planner';
-import Leaderboard   from './pages/Leaderboard';
-import Sidebar       from './components/Sidebar';
+import Landing         from './pages/Landing';
+import Login           from './pages/Login';
+import Register        from './pages/Register';
+import Dashboard       from './pages/Dashboard';
+import Exams           from './pages/Exams';
+import Practice        from './pages/Practice';
+import Results         from './pages/Results';
+import Progress        from './pages/Progress';
+import Proyecciones    from './pages/Proyecciones';
+import Settings        from './pages/Settings';
+import Calculator      from './pages/Calculator';
+import Universities    from './pages/Universities';
+import Planner         from './pages/Planner';
+import Leaderboard     from './pages/Leaderboard';
+import AdminDashboard  from './pages/AdminDashboard';
+import AdminUsuarios   from './pages/AdminUsuarios';
+import AdminPreguntas  from './pages/AdminPreguntas';
+import AdminSesiones   from './pages/AdminSesiones';
+import Sidebar         from './components/Sidebar';
 
 const studentPages = {
-  dashboard:     Dashboard,
-  exams:         Exams,
-  progress:      Progress,
-  proyecciones:  Proyecciones,
-  settings:      Settings,
-  calculator:    Calculator,
-  universities:  Universities,
-  planner:       Planner,
-  leaderboard:   Leaderboard,
+  dashboard:        Dashboard,
+  exams:            Exams,
+  progress:         Progress,
+  proyecciones:     Proyecciones,
+  settings:         Settings,
+  calculator:       Calculator,
+  universities:     Universities,
+  planner:          Planner,
+  leaderboard:      Leaderboard,
+  'admin':          AdminDashboard,
+  'admin-usuarios': AdminUsuarios,
+  'admin-preguntas':AdminPreguntas,
+  'admin-sesiones': AdminSesiones,
 };
 
 const PAGE_TITLES = {
-  dashboard:     'Panel Principal',
-  exams:         'Pruebas PAES',
-  progress:      'Mi Progreso',
-  proyecciones:  'Proyecciones',
-  settings:      'Configuración',
-  calculator:    'Calculadora',
-  universities:  'Universidades y Calculadora',
-  planner:       'Planificador',
-  leaderboard:   'Ranking',
+  dashboard:          'Panel Principal',
+  exams:              'Pruebas PAES',
+  progress:           'Mi Progreso',
+  proyecciones:       'Proyecciones',
+  settings:           'Configuración',
+  calculator:         'Calculadora',
+  universities:       'Universidades y Calculadora',
+  planner:            'Planificador',
+  leaderboard:        'Ranking',
+  'admin':            'Administración',
+  'admin-usuarios':   'Admin · Usuarios',
+  'admin-preguntas':  'Admin · Banco de Preguntas',
+  'admin-sesiones':   'Admin · Sesiones',
 };
 
 function getInitials(name) {

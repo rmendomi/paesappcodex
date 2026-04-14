@@ -586,48 +586,8 @@ export const questionsBySkill = {
   },
 };
 
-// ── Helper: get all questions for an exam (from skill bank) ───────────────
-export const getAllQuestions = (examId) => {
-  const skillBank = questionsBySkill[examId];
-  if (!skillBank) return [];
-  return Object.values(skillBank).flat();
-};
-
-// ── Helper: get questions by skill ────────────────────────────────────────
-export const getSkillQuestions = (examId, skillId) => {
-  return (questionsBySkill[examId]?.[skillId]) || [];
-};
-
 // ── Shuffle helper ─────────────────────────────────────────────────────────
 export const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
-
-// ── Legacy questions (kept for backward compat) ───────────────────────────
-export const questions = {
-  lectora: questionsBySkill.lectora.localizar.slice(0,5).concat(
-    questionsBySkill.lectora.interpretar.slice(0,3),
-    questionsBySkill.lectora.evaluar.slice(0,2)
-  ),
-  m1: questionsBySkill.m1.resolver.slice(0,3).concat(
-    questionsBySkill.m1.modelar.slice(0,3),
-    questionsBySkill.m1.representar.slice(0,2),
-    questionsBySkill.m1.argumentar.slice(0,2)
-  ),
-  m2: questionsBySkill.m2.resolver.slice(0,3).concat(
-    questionsBySkill.m2.modelar.slice(0,3),
-    questionsBySkill.m2.representar.slice(0,2),
-    questionsBySkill.m2.argumentar.slice(0,2)
-  ),
-  historia: questionsBySkill.historia.temporal.slice(0,4).concat(
-    questionsBySkill.historia.fuentes.slice(0,3),
-    questionsBySkill.historia.critico.slice(0,3)
-  ),
-  ciencias: questionsBySkill.ciencias.observar.slice(0,3).concat(
-    questionsBySkill.ciencias.planificar.slice(0,2),
-    questionsBySkill.ciencias.procesar.slice(0,2),
-    questionsBySkill.ciencias.evaluar.slice(0,2),
-    questionsBySkill.ciencias.comunicar.slice(0,1)
-  ),
-};
 
 // ── Universities & careers (ponderaciones PAES 2024) ──────────────────────────
 // Campos: ciudad, tipo (Estatal / Privada CRUCH / Privada), acreditacion (años), descripcion

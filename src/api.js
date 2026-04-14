@@ -303,6 +303,7 @@ export const api = {
       colegioId:      data.colegio_id,
       createdAt:      data.created_at,
       lastLogin:      new Date().toISOString(),
+      role:           data.role || 'student',
     };
   },
 
@@ -597,6 +598,102 @@ export const api = {
           .catch(() => {})
       ));
     } catch (_) { /* no crÃ­tico */ }
+  },
+
+  // ── Admin API ──────────────────────────────────────────────────────────────
+
+  async adminGetStats() {
+    const [usrRes, sesRes, bancoRes, todayRes] = await Promise.all([
+      supabase.from('usuarios').select('email', { count: 'exact', head: true }),
+      supabase.from('sesiones').select('id', { count: 'exact', head: true }),
+      supabase.from('banco_ia').select('id', { count: 'exact', head: true }),
+      supabase.from('sesiones')
+        .select('id', { count: 'exact', head: true })
+        .gte('date', new Date().toISOString().split('T')[0]),
+    ]);
+    return {
+      totalUsuarios: usrRes.count ?? 0,
+      totalSesiones: sesRes.count ?? 0,
+      totalPreguntas: bancoRes.count ?? 0,
+      sesionesHoy: todayRes.count ?? 0,
+    };
+  },
+
+  async adminGetUsuarios({ page = 1, pageSize = 20 } = {}) {
+    const from = (page - 1) * pageSize;
+    const to   = from + pageSize - 1;
+
+    const [usrRes, sesRes] = await Promise.all([
+      supabase.from('usuarios')
+        .select('email, name, picture, school, region, situacion, role, created_at, last_login', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to),
+      supabase.from('sesiones').select('user_email'),
+    ]);
+
+    if (usrRes.error) throw new Error(usrRes.error.message);
+
+    const sessionCount = {};
+    for (const s of sesRes.data || []) {
+      sessionCount[s.user_email] = (sessionCount[s.user_email] || 0) + 1;
+    }
+
+    const usuarios = (usrRes.data || []).map(u => ({
+      ...u,
+      sesiones: sessionCount[u.email] || 0,
+    }));
+
+    return { usuarios, total: usrRes.count ?? 0 };
+  },
+
+  async adminSetUserRole(email, role) {
+    const { error } = await supabase
+      .from('usuarios')
+      .update({ role })
+      .eq('email', email);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  async adminGetPreguntas({ page = 1, pageSize = 20, examId, skillId } = {}) {
+    const from = (page - 1) * pageSize;
+    const to   = from + pageSize - 1;
+
+    let query = supabase
+      .from('banco_ia')
+      .select('id, exam_id, skill_id, text, correct, explanation, generado_por, fecha, veces_usada', { count: 'exact' })
+      .order('fecha', { ascending: false })
+      .range(from, to);
+
+    if (examId) query = query.eq('exam_id', examId);
+    if (skillId) query = query.eq('skill_id', skillId);
+
+    const { data, error, count } = await query;
+    if (error) throw new Error(error.message);
+    return { preguntas: data || [], total: count ?? 0 };
+  },
+
+  async adminDeletePregunta(id) {
+    const { error } = await supabase.from('banco_ia').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  async adminGetSesiones({ page = 1, pageSize = 20, examId } = {}) {
+    const from = (page - 1) * pageSize;
+    const to   = from + pageSize - 1;
+
+    let query = supabase
+      .from('sesiones')
+      .select('id, user_email, exam_id, mode, correct, total, score, date', { count: 'exact' })
+      .order('date', { ascending: false })
+      .range(from, to);
+
+    if (examId) query = query.eq('exam_id', examId);
+
+    const { data, error, count } = await query;
+    if (error) throw new Error(error.message);
+    return { sesiones: data || [], total: count ?? 0 };
   },
 
   async generateStudyPlan({ name, progressStats, targets }) {
