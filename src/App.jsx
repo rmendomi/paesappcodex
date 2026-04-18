@@ -127,7 +127,7 @@ export default function App() {
   // ── Pantalla de carga inicial (verificando sesión) ────────────────
   // No desmontar 'register' durante authLoading: evita que setEmailSent() quede sin efecto
   // al ejecutarse sobre una instancia desmontada (React 18 ignora setState en unmounted).
-  if (authLoading && view !== 'register') {
+  if (authLoading && view !== 'register' && view !== 'login') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8faff' }}>
         <div className="text-center">
