@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { buildProgressStats, createDiagnosticSessions } from '../lib/progress';
 import { api } from '../api';
@@ -63,6 +63,8 @@ export function AuthProvider({ children }) {
   const [planner,   setPlanner]   = useState(DEFAULT_PLANNER);
   const [leaderboard, setLeaderboard] = useState([]);
   const [authLoading, setAuthLoading] = useState(true);
+  // Evita que SIGNED_IN dispare loadUserData → signOut durante register()
+  const isRegistering = useRef(false);
 
   const loadUserData = useCallback(async (email) => {
     // 1. Hidratar desde cache inmediatamente (UX instantáneo al recargar)
@@ -129,7 +131,10 @@ export function AuthProvider({ children }) {
       }
 
       if (event === 'SIGNED_IN' && session?.user?.email) {
-        await loadUserData(session.user.email);
+        // Saltar durante register() para evitar race condition profile→signOut
+        if (!isRegistering.current) {
+          await loadUserData(session.user.email);
+        }
         return;
       }
 
@@ -151,12 +156,14 @@ export function AuthProvider({ children }) {
 
   const register = useCallback(
     async ({ email, password, nombre, anioNacimiento, situacion, region, colegioId }) => {
+      isRegistering.current = true;
       setAuthLoading(true);
       try {
+        const redirectTo = import.meta.env.VITE_APP_URL || window.location.origin;
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: { emailRedirectTo: redirectTo },
         });
         if (error) throw new Error(error.message);
 
@@ -166,6 +173,7 @@ export function AuthProvider({ children }) {
 
         return { needsEmailVerification: !data.session };
       } finally {
+        isRegistering.current = false;
         setAuthLoading(false);
       }
     },
@@ -175,15 +183,25 @@ export function AuthProvider({ children }) {
   const login = useCallback(async ({ email, password }) => {
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        if (error.message.includes('Email not confirmed')) {
+        const msg = error.message || '';
+        const code = error.code || error.status || '';
+        if (msg.includes('Email not confirmed') || code === 'email_not_confirmed') {
           throw new Error('Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada.');
         }
-        if (error.message.includes('Invalid login credentials')) {
-          throw new Error('Correo o contrasena incorrectos. Verifica tus datos.');
+        if (
+          msg.includes('Invalid login credentials') ||
+          msg.includes('invalid_credentials') ||
+          code === 'invalid_credentials'
+        ) {
+          throw new Error('Correo o contraseña incorrectos. Verifica tus datos.');
         }
-        throw new Error(error.message);
+        throw new Error(msg || 'No se pudo iniciar sesión. Intenta de nuevo.');
+      }
+      // Supabase retornó OK pero sin sesión (edge case)
+      if (!data?.session) {
+        throw new Error('No se pudo iniciar sesión. Intenta de nuevo.');
       }
     } finally {
       setAuthLoading(false);

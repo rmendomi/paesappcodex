@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, GraduationCap, AlertCircle, Loader2, Eye, EyeOff, Mail, Lock, User, ChevronDown, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -57,27 +58,60 @@ const STRENGTH_LABELS = ['', 'Débil', 'Media', 'Fuerte'];
 const STRENGTH_COLORS = ['', '#ef4444', '#f59e0b', '#22c55e'];
 
 // Componente de select de colegio con búsqueda
+// Usa position:fixed + Portal para escapar del overflow-y:auto del formulario
 function ColegioSelect({ colegios, value, onChange, loading }) {
-  const [search,    setSearch]    = useState('');
-  const [open,      setOpen]      = useState(false);
+  const [search,     setSearch]     = useState('');
+  const [open,       setOpen]       = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [customText, setCustomText] = useState('');
-  const ref = useRef(null);
+  const [dropPos,    setDropPos]    = useState({ top: 0, left: 0, width: 0 });
+  const wrapRef = useRef(null);
+  const btnRef  = useRef(null);
 
   const filtered = colegios.filter(c =>
     c.nombre.toLowerCase().includes(search.toLowerCase()) ||
     (c.comuna || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const selected = value === 'custom'
-    ? null
-    : colegios.find(c => c.id === value);
+  const selected = value === 'custom' ? null : colegios.find(c => c.id === value);
+
+  const calcPos = useCallback(() => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom;
+    const spaceAbove = r.top;
+    const dropH = Math.min(300, Math.max(spaceBelow, spaceAbove) - 8);
+    const openAbove = spaceBelow < 200 && spaceAbove > spaceBelow;
+    setDropPos({
+      left:   r.left,
+      width:  r.width,
+      top:    openAbove ? undefined : r.bottom + 4,
+      bottom: openAbove ? window.innerHeight - r.top + 4 : undefined,
+      maxH:   dropH,
+    });
+  }, []);
+
+  const handleOpen = () => {
+    calcPos();
+    setOpen(o => !o);
+  };
 
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+    if (!open) return;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target)) return;
+      const portal = document.getElementById('colegio-portal');
+      if (portal?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onScroll = () => setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
 
   const handleSelect = (colegio) => {
     setCustomMode(false);
@@ -123,11 +157,101 @@ function ColegioSelect({ colegios, value, onChange, loading }) {
     );
   }
 
+  const dropdownEl = open && !loading && createPortal(
+    <div
+      id="colegio-portal"
+      style={{
+        position:  'fixed',
+        top:       dropPos.top,
+        bottom:    dropPos.bottom,
+        left:      dropPos.left,
+        width:     dropPos.width,
+        maxHeight: dropPos.maxH,
+        zIndex:    9999,
+        background: '#fff',
+        border:    '1.5px solid rgba(12,31,61,0.1)',
+        borderRadius: 12,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+        display:   'flex',
+        flexDirection: 'column',
+        overflow:  'hidden',
+      }}
+    >
+      {/* Buscador */}
+      <div className="p-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(12,31,61,0.06)' }}>
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(12,31,61,0.35)' }} />
+          <input
+            autoFocus
+            type="text"
+            placeholder="Buscar colegio o comuna…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ ...inputStyle, padding: '7px 10px 7px 28px', fontSize: 13 }}
+          />
+        </div>
+      </div>
+
+      {/* Lista */}
+      <div style={{ overflowY: 'auto', flex: 1 }}>
+        <button
+          type="button"
+          onClick={() => handleSelect({ id: null, nombre: 'No tengo colegio / Independiente' })}
+          className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+          style={{ fontSize: 13, color: 'rgba(12,31,61,0.6)', borderBottom: '1px solid rgba(12,31,61,0.04)' }}
+        >
+          No tengo colegio / Independiente
+        </button>
+
+        {filtered.length === 0 && search ? (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs" style={{ color: 'rgba(12,31,61,0.4)' }}>
+              No encontramos "{search}" en la lista.
+            </p>
+            <button
+              type="button"
+              onClick={handleCustomMode}
+              className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+              style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600, borderTop: '1px solid rgba(12,31,61,0.04)' }}
+            >
+              + Ingresar nombre manualmente
+            </button>
+          </>
+        ) : (
+          <>
+            {filtered.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => handleSelect(c)}
+                className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                style={{ fontSize: 13, color: '#0c1f3d' }}
+              >
+                <div className="font-medium">{c.nombre}</div>
+                {c.comuna && <div style={{ fontSize: 11, color: 'rgba(12,31,61,0.4)', marginTop: 1 }}>{c.comuna} · {c.tipo}</div>}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={handleCustomMode}
+              className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+              style={{ fontSize: 13, color: '#1d4ed8', borderTop: '1px solid rgba(12,31,61,0.06)' }}
+            >
+              + Mi colegio no está en la lista
+            </button>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={wrapRef} className="relative">
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={handleOpen}
         style={{ ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', cursor: 'pointer' }}
         disabled={loading}
       >
@@ -136,81 +260,7 @@ function ColegioSelect({ colegios, value, onChange, loading }) {
         </span>
         <ChevronDown size={14} style={{ color: 'rgba(12,31,61,0.35)', flexShrink: 0 }} />
       </button>
-
-      {open && !loading && (
-        <div
-          className="absolute z-50 w-full mt-1 rounded-xl shadow-xl overflow-hidden"
-          style={{ background: '#fff', border: '1.5px solid rgba(12,31,61,0.1)', maxHeight: 300 }}
-        >
-          {/* Buscador */}
-          <div className="p-2" style={{ borderBottom: '1px solid rgba(12,31,61,0.06)' }}>
-            <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(12,31,61,0.35)' }} />
-              <input
-                autoFocus
-                type="text"
-                placeholder="Buscar colegio o comuna…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{ ...inputStyle, paddingLeft: 30, padding: '7px 10px 7px 28px', fontSize: 13 }}
-              />
-            </div>
-          </div>
-
-          {/* Lista */}
-          <div style={{ overflowY: 'auto', maxHeight: 220 }}>
-            {/* Opción "no tengo colegio" */}
-            <button
-              type="button"
-              onClick={() => handleSelect({ id: null, nombre: 'No tengo colegio / Independiente' })}
-              className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-              style={{ fontSize: 13, color: 'rgba(12,31,61,0.6)', borderBottom: '1px solid rgba(12,31,61,0.04)' }}
-            >
-              No tengo colegio / Independiente
-            </button>
-
-            {filtered.length === 0 && search ? (
-              <>
-                <p className="px-4 pt-3 pb-1 text-xs" style={{ color: 'rgba(12,31,61,0.4)' }}>
-                  No encontramos "{search}" en la lista.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleCustomMode}
-                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                  style={{ fontSize: 13, color: '#1d4ed8', fontWeight: 600, borderTop: '1px solid rgba(12,31,61,0.04)' }}
-                >
-                  + Ingresar nombre manualmente
-                </button>
-              </>
-            ) : (
-              <>
-                {filtered.map(c => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => handleSelect(c)}
-                    className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                    style={{ fontSize: 13, color: '#0c1f3d' }}
-                  >
-                    <div className="font-medium">{c.nombre}</div>
-                    {c.comuna && <div style={{ fontSize: 11, color: 'rgba(12,31,61,0.4)', marginTop: 1 }}>{c.comuna} · {c.tipo}</div>}
-                  </button>
-                ))}
-                {/* Siempre mostrar opción manual al fondo */}
-                <button
-                  type="button"
-                  onClick={handleCustomMode}
-                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                  style={{ fontSize: 13, color: '#1d4ed8', borderTop: '1px solid rgba(12,31,61,0.06)' }}
-                >
-                  + Mi colegio no está en la lista
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {dropdownEl}
     </div>
   );
 }
