@@ -294,18 +294,19 @@ export const api = {
     const now = new Date().toISOString();
     const { error } = await supabase.from('usuarios').upsert({
       email,
-      name:            nombre || '',
-      picture:         '',
-      school:          '',
-      grade_level:     '4Â° Medio',
-      target_score:    700,
-      targets:         DEFAULT_TARGETS,
-      anio_nacimiento: anioNacimiento || null,
-      situacion:       situacion || 'estudiante',
-      region:          region || null,
-      colegio_id:      colegioId || null,
-      created_at:      now,
-      last_login:      now,
+      name:                    nombre || '',
+      picture:                 '',
+      school:                  '',
+      grade_level:             '4° Medio',
+      target_score:            700,
+      targets:                 DEFAULT_TARGETS,
+      anio_nacimiento:         anioNacimiento || null,
+      situacion:               situacion || 'estudiante',
+      region:                  region || null,
+      colegio_id:              colegioId || null,
+      onboarding_completado:   false,
+      created_at:              now,
+      last_login:              now,
     });
     if (error) throw new Error(error.message);
 
