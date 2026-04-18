@@ -167,20 +167,26 @@ export function AuthProvider({ children }) {
         });
 
         // Si solo falló el envío del email (usuario SÍ fue creado), continuar
-        const emailSendFailed = error?.message?.toLowerCase().includes('sending confirmation email');
+        // Cubre mensajes de Supabase built-in SMTP y Resend
+        const emailSendFailed = error && (
+          error?.message?.toLowerCase().includes('sending confirmation email') ||
+          error?.message?.toLowerCase().includes('error sending email') ||
+          error?.message?.toLowerCase().includes('failed to send') ||
+          error?.message?.toLowerCase().includes('email') && (error?.status === 500 || error?.code === 500)
+        );
         if (error && !emailSendFailed) throw new Error(error.message);
 
         await api.createUserProfile({ email, nombre, anioNacimiento, situacion, region, colegioId });
 
-        // Si el SMTP falló pero el usuario fue creado, intentar login directo
+        // Si el SMTP/Resend falló pero el usuario fue creado, intentar login directo
         if (emailSendFailed) {
           const { data: loginData } = await supabase.auth.signInWithPassword({ email, password });
           if (loginData?.session) {
             await loadUserData(email);
             return { needsEmailVerification: false };
           }
-          // SMTP falla + confirmación requerida → cuenta creada pero bloqueada
-          throw new Error('Tu cuenta fue creada pero hubo un problema con el correo de confirmación. Contacta al administrador.');
+          // Resend puede haber enviado el correo aunque Supabase retornó 500 → mostrar pantalla de verificación
+          return { needsEmailVerification: true };
         }
 
         if (data.session) await loadUserData(email);
