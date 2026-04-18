@@ -165,9 +165,23 @@ export function AuthProvider({ children }) {
           password,
           options: { emailRedirectTo: redirectTo },
         });
-        if (error) throw new Error(error.message);
+
+        // Si solo falló el envío del email (usuario SÍ fue creado), continuar
+        const emailSendFailed = error?.message?.toLowerCase().includes('sending confirmation email');
+        if (error && !emailSendFailed) throw new Error(error.message);
 
         await api.createUserProfile({ email, nombre, anioNacimiento, situacion, region, colegioId });
+
+        // Si el SMTP falló pero el usuario fue creado, intentar login directo
+        if (emailSendFailed) {
+          const { data: loginData } = await supabase.auth.signInWithPassword({ email, password });
+          if (loginData?.session) {
+            await loadUserData(email);
+            return { needsEmailVerification: false };
+          }
+          // SMTP falla + confirmación requerida → cuenta creada pero bloqueada
+          throw new Error('Tu cuenta fue creada pero hubo un problema con el correo de confirmación. Contacta al administrador.');
+        }
 
         if (data.session) await loadUserData(email);
 
