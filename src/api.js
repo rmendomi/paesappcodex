@@ -1,5 +1,6 @@
 ﻿// â”€â”€ Cliente Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { supabase } from './lib/supabase';
+import { createDiagnosticSessions } from './lib/progress';
 
 const DEFAULT_TARGETS = { lectora: 700, m1: 700, m2: 680, historia: 690, ciencias: 710 };
 
@@ -102,10 +103,23 @@ async function callGASForQuestions(params) {
   if (!gasUrl) throw new Error('VITE_GAS_URL no configurada en .env');
 
   const url = `${gasUrl}?action=generateQuestion&examId=${encodeURIComponent(params.examId)}&skillId=${encodeURIComponent(params.skillId || '')}&count=${encodeURIComponent(params.count || 5)}&userEmail=${encodeURIComponent(params.userEmail || '')}`;
-  const resp = await fetch(url);
-  const data = await resp.json();
-  if (data.error) throw new Error(data.error);
-  return data;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Tiempo de espera agotado (30s). Verifica tu conexión e intenta de nuevo.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function saveToBancoIA(questions, examId, skillId, userEmail) {
@@ -424,29 +438,56 @@ export const api = {
     return { ok: true };
   },
 
-  async saveSession({ userEmail, examId, mode, correct, total, score, date }) {
+  async saveSession({ userEmail, examId, mode, skillId, correct, total, score, date, questionIds, wrongIds }) {
     const id = `${userEmail}_${Date.now()}`;
-    const { error } = await supabase.from('sesiones').insert({
+    const payload = {
       id, user_email: userEmail, exam_id: examId,
       mode: mode || 'practice',
       correct: correct || 0, total: total || 0, score: score || 0,
       date: date || new Date().toISOString(),
-    });
+      skill_id: skillId || null,
+      question_ids: questionIds || [],
+      wrong_ids: wrongIds || [],
+    };
+
+    const { error } = await supabase.from('sesiones').insert(payload);
+    if (error && error.message?.includes('column')) {
+      const { error: fallbackError } = await supabase.from('sesiones').insert({
+        id, user_email: userEmail, exam_id: examId,
+        mode: mode || 'practice',
+        correct: correct || 0, total: total || 0, score: score || 0,
+        date: date || new Date().toISOString(),
+      });
+      if (fallbackError) throw new Error(fallbackError.message);
+      return { ok: true, id };
+    }
     if (error) throw new Error(error.message);
     return { ok: true, id };
   },
 
   async getUserData(email) {
-    const [sesRes, strRes, planRes] = await Promise.all([
+    const [sesRes, strRes, planRes, diagRes] = await Promise.all([
       supabase.from('sesiones').select('*').eq('user_email', email).order('date'),
       supabase.from('streak').select('*').eq('user_email', email).maybeSingle(),
       supabase.from('planner').select('*').eq('user_email', email).maybeSingle(),
+      supabase.from('diagnostico').select('*').eq('user_email', email).order('completed_at'),
     ]);
 
-    const sessions = (sesRes.data || []).map(s => ({
+    const practiceSessions = (sesRes.data || []).map(s => ({
       id: s.id, examId: s.exam_id, mode: s.mode,
       correct: s.correct, total: s.total, score: s.score, date: s.date,
+      skillId: s.skill_id || null,
+      skill_id: s.skill_id || null,
+      questionIds: s.question_ids || [],
+      wrongIds: s.wrong_ids || [],
     }));
+
+    const diagnosticSessions = (diagRes.data || []).flatMap((d) =>
+      createDiagnosticSessions(email, d.resultados, d.version, d.completed_at)
+    );
+
+    const sessions = [...practiceSessions, ...diagnosticSessions]
+      .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 
     const raw = strRes.data;
     const streak = raw
@@ -811,7 +852,7 @@ export const api = {
       .update({ diagnostico_completado: true })
       .eq('email', email);
 
-    return { ok: true, version: nextVersion };
+    return { ok: true, version: nextVersion, completedAt: new Date().toISOString() };
   },
 
   async getDiagnostico(email) {

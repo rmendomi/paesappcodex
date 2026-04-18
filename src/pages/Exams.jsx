@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowRight, X, BookOpen, Zap, Trophy, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRight, X, BookOpen, Zap, Trophy, Sparkles, AlertCircle } from 'lucide-react';
 import { exams, skillsConfig } from '../data/catalogData';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -9,6 +9,14 @@ export default function Exams({ onNavigate }) {
   const [modal,        setModal]        = useState(null);  // { examId } | null
   const [aiLoading,    setAiLoading]    = useState(false);
   const [freeLoading,  setFreeLoading]  = useState(false);
+  const [errorMsg,     setErrorMsg]     = useState(null);
+
+  // Auto-ocultar error después de 6 segundos
+  useEffect(() => {
+    if (!errorMsg) return;
+    const t = setTimeout(() => setErrorMsg(null), 6000);
+    return () => clearTimeout(t);
+  }, [errorMsg]);
 
   const openModal  = (examId) => setModal({ examId });
   const closeModal = () => setModal(null);
@@ -30,9 +38,9 @@ export default function Exams({ onNavigate }) {
         const skill = skillsConfig[examId].find(s => s.id === skillId);
         skillName = `${exam.name} · ${skill.name} ✨ IA`;
       }
-      onNavigate('practice', { examId, questions: result.questions, mode: 'practice', skillName });
+      onNavigate('practice', { examId, questions: result.questions, mode: 'ai_practice', skillId, skillName });
     } catch (err) {
-      alert('Error generando preguntas con IA: ' + err.message);
+      setErrorMsg('Error generando preguntas con IA: ' + err.message);
     } finally {
       setAiLoading(false);
     }
@@ -57,7 +65,7 @@ export default function Exams({ onNavigate }) {
       }
 
       if (!user?.email) {
-        alert('Debes iniciar sesion para cargar preguntas.');
+        setErrorMsg('Debes iniciar sesión para cargar preguntas.');
         return;
       }
 
@@ -70,20 +78,23 @@ export default function Exams({ onNavigate }) {
       const questions = result.questions || [];
 
       if (!questions.length) {
-        alert('No hay preguntas disponibles por ahora para este modo.');
+        setErrorMsg('No hay preguntas disponibles por ahora. Intenta con otra habilidad o modo.');
         return;
       }
 
       if (questions.length < count) {
-        alert(`Se cargaron ${questions.length} preguntas (objetivo ${count}).`);
+        setErrorMsg(`Se cargaron ${questions.length} de ${count} preguntas solicitadas.`);
       }
 
       onNavigate('practice', {
         examId,
         questions,
-        mode: mode === 'practice' ? 'practice' : 'exam',
+        mode: mode === 'global' ? 'exam' : mode,
+        skillId: skillId || null,
         skillName,
       });
+    } catch (err) {
+      setErrorMsg('Error cargando preguntas: ' + err.message);
     } finally {
       setFreeLoading(false);
     }
@@ -91,6 +102,23 @@ export default function Exams({ onNavigate }) {
 
   return (
     <div className="px-8 py-8 space-y-8">
+
+      {/* Toast de error */}
+      {errorMsg && (
+        <div
+          className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-2xl shadow-xl max-w-sm"
+          style={{ background: '#1e293b', border: '1px solid rgba(239,68,68,0.3)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
+          <p className="text-sm leading-snug flex-1" style={{ color: '#fca5a5' }}>{errorMsg}</p>
+          <button
+            onClick={() => setErrorMsg(null)}
+            className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors"
+          >
+            <X size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />
+          </button>
+        </div>
+      )}
 
       {/* Loading overlay — generación IA */}
       {aiLoading && (

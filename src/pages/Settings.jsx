@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Save, User, Target, CheckCircle, Loader2, Plus, Minus, Search, X, ChevronRight, GraduationCap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { exams } from '../data/catalogData';
@@ -31,6 +31,7 @@ const DEFAULT_TARGETS = {
   ciencias: 710,
 };
 
+const DEFAULT_GRADE = '4° Medio';
 const TARGET_MIN = 100;
 const TARGET_MAX = 1000;
 const TARGET_STEP = 10;
@@ -88,8 +89,8 @@ function resizeImageAsDataUrl(file, maxSide = 320, quality = 0.72) {
   });
 }
 
-export default function Settings() {
-  const { user, updateProfile, saveObjetivos } = useAuth();
+export default function Settings({ onNavigate }) {
+  const { user, updateProfile, saveObjetivos, progressStats } = useAuth();
 
   const initialTargets = user?.targets || DEFAULT_TARGETS;
 
@@ -102,12 +103,34 @@ export default function Settings() {
   );
   const [colegios, setColegios] = useState([]);
   const [loadingColegios, setLoadingColegios] = useState(false);
-  const [grade, setGrade] = useState(user?.gradeLevel || '4° Medio');
+  const [grade, setGrade] = useState(user?.gradeLevel || DEFAULT_GRADE);
   const [targets, setTargets] = useState({ ...initialTargets });
   const [targetInputs, setTargetInputs] = useState(buildTargetInputs(initialTargets));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  const isDirty = useMemo(() =>
+    name    !== (user?.name       || '') ||
+    school  !== (user?.school     || '') ||
+    grade   !== (user?.gradeLevel || DEFAULT_GRADE) ||
+    JSON.stringify(targets) !== JSON.stringify(user?.targets || DEFAULT_TARGETS),
+  [name, school, grade, targets, user]);
+
+  useEffect(() => {
+    const handler = (e) => { if (!isDirty) return; e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const targetWarnings = useMemo(() => Object.fromEntries(
+    Object.entries(targets).map(([examId, target]) => {
+      const lastScore = progressStats?.[examId]?.lastScore || 0;
+      return [examId, lastScore > 0 && target < lastScore
+        ? `Meta menor a tu puntaje actual (${lastScore} pts)`
+        : null];
+    })
+  ), [targets, progressStats]);
 
   // ── Estado objetivos académicos ─────────────────────────────────────────────
   const [showObjEditor,    setShowObjEditor]    = useState(false);
@@ -360,10 +383,9 @@ export default function Settings() {
     setSecUniSearch('');
   };
 
-  const averageTarget = Math.round(
-    Object.values(targets).reduce((sum, value) => sum + value, 0) /
-      Math.max(Object.values(targets).length, 1)
-  );
+  const averageTarget = useMemo(() => Math.round(
+    Object.values(targets).reduce((sum, v) => sum + v, 0) / Math.max(Object.values(targets).length, 1)
+  ), [targets]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -393,6 +415,8 @@ export default function Settings() {
     }
   };
 
+  const hasTargetWarnings = Object.values(targetWarnings).some(Boolean);
+
   return (
     <div className="px-4 sm:px-8 py-8 max-w-3xl space-y-8">
       <div className="fade-up delay-1">
@@ -403,6 +427,27 @@ export default function Settings() {
           Personaliza tus datos y metas PAES.
         </p>
       </div>
+
+      {/* Banner cambios sin guardar */}
+      {isDirty && !saved && (
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl fade-up"
+          style={{ background: 'rgba(245,158,11,0.1)', border: '1.5px solid rgba(245,158,11,0.25)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm">⚠️</span>
+            <p className="text-sm font-medium" style={{ color: '#92400e' }}>Tienes cambios sin guardar</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            style={{ background: '#f59e0b', color: 'white' }}
+          >
+            Guardar ahora
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSave} className="space-y-6 fade-up delay-2">
         <div
@@ -795,7 +840,7 @@ export default function Settings() {
             </div>
           </div>
           <p className="text-xs mb-5" style={{ color: 'rgba(12,31,61,0.45)' }}>
-            Ahora puedes ajustar con slider, botones +/- o escribir el número directamente.
+            Define el puntaje que quieres alcanzar en cada prueba. El planificador IA usará estas metas para priorizar las áreas donde más necesitas mejorar.
           </p>
           <div className="space-y-5">
             {exams.map((exam) => {
@@ -867,6 +912,15 @@ export default function Settings() {
                       </button>
                     ))}
                   </div>
+
+                  {/* Warning si meta < puntaje actual */}
+                  {targetWarnings[exam.id] && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs"
+                      style={{ color: '#b45309' }}>
+                      <span>⚠️</span>
+                      <span>{targetWarnings[exam.id]}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}

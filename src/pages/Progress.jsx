@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, Lightbulb, AlertTriangle, Target, BookOpen, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { exams, skillsConfig } from '../data/catalogData';
 import { supabase } from '../lib/supabase';
+import { PROGRESS_MODE_OPTIONS, buildProgressStats, sessionsForMode } from '../lib/progress';
 
 // Consejos específicos por habilidad PAES
 const SKILL_TIPS = {
@@ -71,9 +72,10 @@ function analyzeWeakSkills(sessions) {
   const skillErrors = {}; // { 'lectora_localizar': { errors: 0, total: 0 } }
 
   sessions.forEach(s => {
-    if (!s.examId || !s.skill_id) return;
-    const key = `${s.examId}_${s.skill_id}`;
-    if (!skillErrors[key]) skillErrors[key] = { examId: s.examId, skillId: s.skill_id, errors: 0, total: 0 };
+    const skillId = s.skillId || s.skill_id;
+    if (!s.examId || !skillId) return;
+    const key = `${s.examId}_${skillId}`;
+    if (!skillErrors[key]) skillErrors[key] = { examId: s.examId, skillId, errors: 0, total: 0 };
     skillErrors[key].total += s.total || 0;
     skillErrors[key].errors += (s.total || 0) - (s.correct || 0);
   });
@@ -84,11 +86,17 @@ function analyzeWeakSkills(sessions) {
 export default function Progress({ onNavigate }) {
   const { progressStats, user, sessions } = useAuth();
   const targets = user?.targets || {};
+  const [modeFilter, setModeFilter] = useState('all');
+  const filteredSessions = useMemo(() => sessionsForMode(sessions, modeFilter), [sessions, modeFilter]);
+  const visibleProgressStats = useMemo(
+    () => modeFilter === 'all' ? progressStats : buildProgressStats(sessions, modeFilter),
+    [modeFilter, progressStats, sessions]
+  );
 
-  const totalAttempts = Object.values(progressStats).reduce((s, p) => s + p.attempted, 0);
-  const totalCorrect  = Object.values(progressStats).reduce((s, p) => s + p.correct,   0);
-  const totalAnswered = (sessions || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-  const validScores   = Object.values(progressStats).filter(p => p.lastScore > 0);
+  const totalAttempts = Object.values(visibleProgressStats).reduce((s, p) => s + p.attempted, 0);
+  const totalCorrect  = Object.values(visibleProgressStats).reduce((s, p) => s + p.correct,   0);
+  const totalAnswered = (filteredSessions || []).reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+  const validScores   = Object.values(visibleProgressStats).filter(p => p.lastScore > 0);
   const avgScore      = validScores.length > 0
     ? Math.round(validScores.reduce((s, p) => s + p.lastScore, 0) / validScores.length)
     : 0;
@@ -100,19 +108,19 @@ export default function Progress({ onNavigate }) {
   // Insights dinámicos
   const bestExam = validScores.length > 0
     ? exams.reduce((best, exam) =>
-        (progressStats[exam.id]?.lastScore || 0) > (progressStats[best.id]?.lastScore || 0) ? exam : best
+        (visibleProgressStats[exam.id]?.lastScore || 0) > (visibleProgressStats[best.id]?.lastScore || 0) ? exam : best
       , exams[0])
     : null;
 
   const weakestExam = validScores.length > 0
     ? exams.reduce((worst, exam) => {
-        const diff  = (progressStats[exam.id]?.lastScore || 0) - (targets[exam.id] || 700);
-        const wDiff = (progressStats[worst.id]?.lastScore || 0) - (targets[worst.id] || 700);
+        const diff  = (visibleProgressStats[exam.id]?.lastScore || 0) - (targets[exam.id] || 700);
+        const wDiff = (visibleProgressStats[worst.id]?.lastScore || 0) - (targets[worst.id] || 700);
         return diff < wDiff ? exam : worst;
       }, exams[0])
     : null;
 
-  const allTrends   = Object.values(progressStats).flatMap(p => p.trend || []);
+  const allTrends   = Object.values(visibleProgressStats).flatMap(p => p.trend || []);
   const improvement = allTrends.length >= 2
     ? Math.round(allTrends[allTrends.length - 1] - allTrends[0])
     : null;
@@ -136,7 +144,7 @@ export default function Progress({ onNavigate }) {
 
         if (!data || data.length === 0) {
           // Fallback: analizar sesiones si no hay preguntas_vistas
-          const weak = analyzeWeakSkills(sessions || []);
+          const weak = analyzeWeakSkills(filteredSessions || []);
           setWeakSkills(weak);
           return;
         }
@@ -164,7 +172,7 @@ export default function Progress({ onNavigate }) {
     }
 
     fetchWeakSkills();
-  }, [user?.email, sessions]);
+  }, [user?.email, sessions, filteredSessions]);
 
   const hasSuggestions = weakSkills.length > 0;
 
@@ -177,6 +185,27 @@ export default function Progress({ onNavigate }) {
         <p className="text-sm mt-1" style={{ color: 'rgba(12,31,61,0.45)' }}>
           Evolución de tu rendimiento por prueba
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 fade-up delay-1">
+        <span className="text-xs font-semibold mr-1" style={{ color: 'rgba(12,31,61,0.45)' }}>
+          Tipo de práctica
+        </span>
+        {PROGRESS_MODE_OPTIONS.map(option => (
+          <button
+            key={option.id}
+            onClick={() => setModeFilter(option.id)}
+            className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+            style={{
+              background: modeFilter === option.id ? '#1d4ed8' : 'white',
+              color: modeFilter === option.id ? 'white' : 'rgba(12,31,61,0.62)',
+              border: `1px solid ${modeFilter === option.id ? '#1d4ed8' : 'rgba(12,31,61,0.08)'}`,
+              boxShadow: '0 1px 8px rgba(12,31,61,0.04)',
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
 
       {/* Resumen global */}
@@ -320,7 +349,7 @@ export default function Progress({ onNavigate }) {
           <h2 className="font-display text-xl font-semibold" style={{ color: '#0c1f3d' }}>Evolución por prueba</h2>
           <div className="grid md:grid-cols-2 gap-4">
             {exams.map(exam => {
-              const stats  = progressStats[exam.id] || { attempted: 0, correct: 0, lastScore: 0, trend: [] };
+              const stats  = visibleProgressStats[exam.id] || { attempted: 0, correct: 0, lastScore: 0, trend: [] };
               const target = targets[exam.id] || 700;
               const last   = stats.lastScore;
               const first  = stats.trend?.[0] || 0;
@@ -401,7 +430,7 @@ export default function Progress({ onNavigate }) {
                 icon: '💪',
                 title: 'Fortaleza',
                 desc: bestExam
-                  ? `${bestExam.name} es tu prueba más fuerte con ${progressStats[bestExam.id]?.lastScore || 0} pts. Mantén la práctica.`
+                  ? `${bestExam.name} es tu prueba más fuerte con ${visibleProgressStats[bestExam.id]?.lastScore || 0} pts. Mantén la práctica.`
                   : 'Practica más para identificar tu prueba más fuerte.',
               },
               {

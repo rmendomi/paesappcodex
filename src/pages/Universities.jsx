@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Search, CheckCircle, XCircle, ChevronDown, ChevronUp, TrendingUp, Info } from 'lucide-react';
+import { Search, CheckCircle, XCircle, ChevronDown, ChevronUp, TrendingUp, Info, Zap } from 'lucide-react';
 import { exams, universities, calcWeightedScore } from '../data/catalogData';
+import { useAuth } from '../context/AuthContext';
 
 // ── Calculadora PAES ───────────────────────────────────────────────
 const scoreToPercentile = (score) => {
@@ -29,9 +30,21 @@ const percentileLabel = (pct) => {
 };
 
 export default function Universities() {
+  const { progressStats } = useAuth();
   const [scores,   setScores]   = useState({ nem: '', lectora: '', m1: '', m2: '', historia: '', ciencias: '' });
   const [search,   setSearch]   = useState('');
   const [expanded, setExpanded] = useState({});
+
+  const hasMyScores = exams.some(e => (progressStats?.[e.id]?.lastScore || 0) > 0);
+
+  const loadMyScores = () => {
+    const next = { nem: scores.nem };
+    exams.forEach(e => {
+      const s = progressStats?.[e.id]?.lastScore || 0;
+      next[e.id] = s > 0 ? String(s) : '';
+    });
+    setScores(next);
+  };
 
   // Permite tipear libremente; el clampeo se aplica solo al salir del campo
   const setScore = (id, val) => {
@@ -96,9 +109,22 @@ export default function Universities() {
         {/* Inputs (2/3) */}
         <div className="lg:col-span-2 p-6 rounded-3xl"
           style={{ background: 'white', boxShadow: '0 2px 20px rgba(12,31,61,0.06)' }}>
-          <h2 className="font-display text-base font-semibold mb-4" style={{ color: '#0c1f3d' }}>
-            Ingresa tus puntajes
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-base font-semibold" style={{ color: '#0c1f3d' }}>
+              Ingresa tus puntajes
+            </h2>
+            {hasMyScores && (
+              <button
+                type="button"
+                onClick={loadMyScores}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{ background: 'rgba(29,78,216,0.08)', color: '#1d4ed8', border: '1px solid rgba(29,78,216,0.15)' }}
+              >
+                <Zap size={11} />
+                Usar mis puntajes
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div>
               <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(12,31,61,0.5)' }}>NEM</label>

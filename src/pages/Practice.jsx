@@ -78,9 +78,9 @@ function formatTime(seconds) {
 }
 
 export default function Practice({ data, onFinish, onBack }) {
-  const { examId, questions, mode = 'practice', skillName } = data;
+  const { examId, questions, mode = 'practice', skillId, skillName } = data;
   const exam = getExam(examId);
-  const isExamMode = mode === 'exam';
+  const isExamMode = mode === 'exam' || mode === 'skill';
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selected,   setSelected]   = useState(null);
@@ -94,13 +94,15 @@ export default function Practice({ data, onFinish, onBack }) {
 
   const finishExam = useCallback((currentAnswers) => {
     const correct = currentAnswers.filter(a => a.correct).length;
+    const questionIds = questions.map(q => q.id);
+    const wrongIds = currentAnswers.filter(a => !a.correct).map(a => a.questionId);
     onFinish({
-      examId, questions, answers: currentAnswers,
+      examId, questions, answers: currentAnswers, skillId,
       correct, total: questions.length,
       score: toScore(correct, questions.length),
-      mode,
+      mode, questionIds, wrongIds,
     });
-  }, [examId, questions, mode, onFinish]);
+  }, [examId, questions, mode, skillId, onFinish]);
 
   // Countdown timer
   useEffect(() => {

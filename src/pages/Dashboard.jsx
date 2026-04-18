@@ -1,9 +1,27 @@
-import { ArrowRight, TrendingUp, Target, Zap, Calendar, Flame, Trophy } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowRight, TrendingUp, Target, Zap, Calendar, Flame, Trophy, HelpCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { exams, getExam } from '../data/catalogData';
+import { PROGRESS_MODE_OPTIONS, buildProgressStats } from '../lib/progress';
+
+function HelpTip({ text }) {
+  return (
+    <span className="relative group inline-flex items-center ml-1 cursor-help">
+      <HelpCircle size={11} style={{ color: 'rgba(12,31,61,0.3)' }} />
+      <span
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-48 px-2.5 py-1.5 rounded-xl text-xs leading-snug opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50"
+        style={{ background: '#0c1f3d', color: 'rgba(255,255,255,0.85)' }}
+      >
+        {text}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent" style={{ borderTopColor: '#0c1f3d' }} />
+      </span>
+    </span>
+  );
+}
 
 export default function Dashboard({ onNavigate }) {
-  const { user, streak, progressStats, recentActivity } = useAuth();
+  const { user, streak, progressStats, recentActivity, sessions } = useAuth();
+  const [modeFilter, setModeFilter] = useState('all');
 
   const today = new Date();
   const hour  = today.getHours();
@@ -17,6 +35,9 @@ export default function Dashboard({ onNavigate }) {
 
   const targetScore = user?.targetScore || 700;
   const targets     = user?.targets || {};
+  const visibleProgressStats = modeFilter === 'all'
+    ? progressStats
+    : buildProgressStats(sessions, modeFilter);
 
   return (
     <div className="px-8 py-8 space-y-8">
@@ -39,12 +60,14 @@ export default function Dashboard({ onNavigate }) {
             value: overallScore ? `${overallScore}` : '—',
             sub:   overallScore ? 'promedio todas las pruebas' : 'practica para ver tu puntaje',
             icon:  Target, color: '#1d4ed8', bg: '#eff6ff',
+            tip: 'Promedio de tus últimos puntajes en cada prueba. Se actualiza con cada práctica completada.',
           },
           {
             label: 'Meta personal',
             value: `${targetScore}`,
             sub:   'puntos objetivo',
             icon:  Zap, color: '#f59e0b', bg: '#fffbeb',
+            tip: 'Promedio de tus metas por prueba. Puedes ajustarlas en Configuración.',
           },
           {
             label: 'Racha actual',
@@ -53,18 +76,22 @@ export default function Dashboard({ onNavigate }) {
             icon:  Flame,
             color: streak.current > 0 ? '#f97316' : 'rgba(12,31,61,0.3)',
             bg:    streak.current > 0 ? '#fff7ed' : '#f8faff',
+            tip: 'Días consecutivos con al menos una práctica completada.',
           },
           {
             label: 'Días estudiados',
             value: `${streak.totalDays}`,
             sub:   'días totales activos',
             icon:  Trophy, color: '#15803d', bg: '#f0fdf4',
+            tip: 'Total de días en que completaste al menos una sesión de práctica.',
           },
-        ].map(({ label, value, sub, icon: Icon, color, bg }) => (
+        ].map(({ label, value, sub, icon: Icon, color, bg, tip }) => (
           <div key={label} className="p-5 rounded-3xl card-lift"
             style={{ background: 'white', boxShadow: '0 2px 20px rgba(12,31,61,0.06)' }}>
             <div className="flex items-start justify-between mb-3">
-              <p className="text-xs font-semibold" style={{ color: 'rgba(12,31,61,0.45)' }}>{label}</p>
+              <p className="text-xs font-semibold flex items-center" style={{ color: 'rgba(12,31,61,0.45)' }}>
+                {label}{tip && <HelpTip text={tip} />}
+              </p>
               <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
                 <Icon size={15} style={{ color }} />
               </div>
@@ -108,9 +135,25 @@ export default function Dashboard({ onNavigate }) {
               Ver detalle <ArrowRight size={11} />
             </button>
           </div>
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            {PROGRESS_MODE_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                onClick={() => setModeFilter(option.id)}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: modeFilter === option.id ? '#1d4ed8' : '#f8faff',
+                  color: modeFilter === option.id ? 'white' : 'rgba(12,31,61,0.62)',
+                  border: `1px solid ${modeFilter === option.id ? '#1d4ed8' : 'rgba(12,31,61,0.08)'}`,
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <div className="space-y-4">
             {exams.map(exam => {
-              const stats  = progressStats[exam.id] || { lastScore: 0 };
+              const stats  = visibleProgressStats[exam.id] || { lastScore: 0 };
               const target = targets[exam.id] || 700;
               const pct    = stats.lastScore > 0 ? Math.round((stats.lastScore - 100) / 9) : 0;
               return (
@@ -142,8 +185,17 @@ export default function Dashboard({ onNavigate }) {
         {/* Práctica rápida */}
         <div className="p-6 rounded-3xl fade-up delay-4"
           style={{ background: 'linear-gradient(160deg, #0c1f3d, #1d4ed8)', boxShadow: '0 4px 30px rgba(12,31,61,0.25)' }}>
-          <h2 className="font-display text-xl font-semibold text-white mb-1">¿Practicamos?</h2>
-          <p className="text-white/50 text-sm mb-6">Elige una prueba y empieza ahora</p>
+          <div className="flex items-start justify-between mb-1">
+            <h2 className="font-display text-xl font-semibold text-white">¿Practicamos?</h2>
+            <button
+              onClick={() => onNavigate('universities')}
+              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}
+            >
+              🎓 Universidades
+            </button>
+          </div>
+          <p className="text-white/50 text-sm mb-4">Elige una prueba y empieza ahora</p>
           <div className="space-y-2">
             {exams.map(exam => (
               <button

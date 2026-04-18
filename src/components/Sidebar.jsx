@@ -1,4 +1,5 @@
-import { LayoutDashboard, BookOpen, TrendingUp, Settings, LogOut, GraduationCap, Building2, Calendar, Trophy, Flame, X, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { LayoutDashboard, BookOpen, TrendingUp, Settings, LogOut, GraduationCap, Building2, Calendar, Trophy, Flame, X, ShieldCheck, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const navGroups = [
@@ -34,6 +35,8 @@ function getInitials(name) {
 
 export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose }) {
   const { user, streak, isAdmin } = useAuth();
+  // Secciones colapsadas: por defecto todas abiertas
+  const [collapsed, setCollapsed] = useState({});
 
   const initials    = getInitials(user?.name);
   const displayName = user?.name || 'Estudiante';
@@ -42,7 +45,11 @@ export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose
 
   const handleNav = (id) => {
     onNavigate(id);
-    if (onClose) onClose(); // cerrar sidebar en mobile al navegar
+    if (onClose) onClose();
+  };
+
+  const toggleSection = (label) => {
+    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }));
   };
 
   return (
@@ -128,43 +135,65 @@ export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose
         </div>
 
         {/* Navegación */}
-        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
-          {navGroups.map(group => (
-            <div key={group.label}>
-              <p
-                className="px-4 mb-1.5 text-xs font-semibold uppercase tracking-wider"
-                style={{ color: 'rgba(255,255,255,0.2)' }}
-              >
-                {group.label}
-              </p>
-              <div className="space-y-0.5">
-                {group.items.map(({ id, label, icon: Icon }) => {
-                  const active = current === id;
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => handleNav(id)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                        active ? 'text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                      }`}
-                      style={active
-                        ? { borderLeft: '3px solid #3b82f6', background: 'rgba(59,130,246,0.15)' }
-                        : { borderLeft: '3px solid transparent' }}
-                    >
-                      <Icon size={17} style={active ? { color: '#93c5fd' } : {}} />
-                      <span className="truncate">{label}</span>
-                      {active && (
-                        <div
-                          className="ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0 pulse-ring"
-                          style={{ background: '#3b82f6' }}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
+        <nav className="flex-1 px-3 py-4 space-y-3 overflow-y-auto">
+          {navGroups.map(group => {
+            const isCollapsed = !!collapsed[group.label];
+            const hasActive   = group.items.some(i => i.id === current);
+            return (
+              <div key={group.label}>
+                {/* Cabecera de sección colapsable */}
+                <button
+                  onClick={() => toggleSection(group.label)}
+                  className="w-full flex items-center justify-between px-4 mb-1 group"
+                >
+                  <p
+                    className="text-xs font-semibold uppercase tracking-wider transition-colors group-hover:text-white/40"
+                    style={{ color: hasActive ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.2)' }}
+                  >
+                    {group.label}
+                  </p>
+                  <ChevronDown
+                    size={12}
+                    className="transition-transform duration-200"
+                    style={{
+                      color: 'rgba(255,255,255,0.2)',
+                      transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                    }}
+                  />
+                </button>
+
+                {/* Items de la sección */}
+                {!isCollapsed && (
+                  <div className="space-y-0.5">
+                    {group.items.map(({ id, label, icon: Icon }) => {
+                      const active = current === id;
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => handleNav(id)}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 min-h-[44px] ${
+                            active ? 'text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                          }`}
+                          style={active
+                            ? { borderLeft: '3px solid #3b82f6', background: 'rgba(59,130,246,0.15)' }
+                            : { borderLeft: '3px solid transparent' }}
+                        >
+                          <Icon size={17} style={active ? { color: '#93c5fd' } : {}} />
+                          <span className="truncate flex-1 text-left">{label}</span>
+                          {active && (
+                            <div
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0 pulse-ring"
+                              style={{ background: '#3b82f6' }}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Sección Administración — solo para admins */}

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { CheckSquare, Square, Calendar, Clock, Zap, RotateCcw, Sparkles, Brain, AlertCircle, Loader2, Target, TrendingUp, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CheckSquare, Square, Calendar, Clock, Zap, RotateCcw, Sparkles, Brain, AlertCircle, Loader2, Target, TrendingUp, ChevronRight, Plus, X, Trash2, PenLine } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { studyPlanTemplates, exams } from '../data/catalogData';
@@ -75,6 +75,26 @@ export default function Planner({ onNavigate }) {
     planner.weekId === currentWeekId && planner.planId !== 'ai' ? planner.planId : 'standard'
   );
 
+  const EMPTY_CUSTOM = {
+    id: 'custom', name: 'Mi plan', icon: '✏️', hoursPerWeek: 0,
+    generatedBy: 'manual',
+    days: Array(7).fill(null).map(() => ({ sessions: [] })),
+  };
+
+  const [customPlan, setCustomPlan] = useState(() => {
+    if (planner.planId === 'custom' && planner.planContent?.generatedBy === 'manual') {
+      return planner.planContent;
+    }
+    return EMPTY_CUSTOM;
+  });
+
+  // Sincronizar customPlan si cambia planContent desde el contexto
+  useEffect(() => {
+    if (planner.planId === 'custom' && planner.planContent?.generatedBy === 'manual') {
+      setCustomPlan(planner.planContent);
+    }
+  }, [planner.planId, planner.planContent]);
+
   // ── Checkboxes ─────────────────────────────────────────────────────────────
   const [checked, setChecked] = useState(
     planner.weekId === currentWeekId ? planner.progress : {}
@@ -98,6 +118,8 @@ export default function Planner({ onNavigate }) {
   // Plan activo según modo
   const activePlan = mode === 'ai' && aiPlan
     ? aiPlan
+    : selectedPlan === 'custom'
+    ? customPlan
     : studyPlanTemplates.find(p => p.id === selectedPlan);
 
   const allSessions    = (activePlan?.days || []).flatMap((day, di) => (day.sessions || []).map((s, si) => ({ ...s, day: di, si })));
@@ -105,12 +127,17 @@ export default function Planner({ onNavigate }) {
   const completedCount = allSessions.filter(s => checked[`${s.day}-${s.si}`]).length;
   const pct            = totalSessions > 0 ? Math.round((completedCount / totalSessions) * 100) : 0;
 
+  const getPlanContent = () => {
+    if (mode === 'ai') return aiPlan;
+    if (selectedPlan === 'custom') return customPlan;
+    return null;
+  };
+
   const toggle = (key) => {
     setChecked(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      const planId      = mode === 'ai' ? 'ai' : selectedPlan;
-      const planContent = mode === 'ai' ? aiPlan : null;
-      savePlannerProgress(currentWeekId, planId, next, planContent);
+      const planId = mode === 'ai' ? 'ai' : selectedPlan;
+      savePlannerProgress(currentWeekId, planId, next, getPlanContent());
       return next;
     });
   };
@@ -118,14 +145,41 @@ export default function Planner({ onNavigate }) {
   const handleChangePlan = (id) => {
     setSelectedPlan(id);
     setChecked({});
-    savePlannerProgress(currentWeekId, id, {}, null);
+    const content = id === 'custom' ? customPlan : null;
+    savePlannerProgress(currentWeekId, id, {}, content);
   };
 
   const resetWeek = () => {
     setChecked({});
-    const planId      = mode === 'ai' ? 'ai' : selectedPlan;
-    const planContent = mode === 'ai' ? aiPlan : null;
-    savePlannerProgress(currentWeekId, planId, {}, planContent);
+    const planId = mode === 'ai' ? 'ai' : selectedPlan;
+    savePlannerProgress(currentWeekId, planId, {}, getPlanContent());
+  };
+
+  const saveTimer = useRef(null);
+  const updateCustomPlan = (newPlan) => {
+    const totalMin = newPlan.days.reduce(
+      (s, d) => s + (d.sessions || []).reduce((ss, s2) => ss + (s2.duration || 0), 0), 0
+    );
+    const updated = { ...newPlan, hoursPerWeek: Math.round(totalMin / 60) };
+    setCustomPlan(updated);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      savePlannerProgress(currentWeekId, 'custom', checked, updated);
+    }, 800);
+  };
+
+  const addCustomSession = (dayIdx, session) => {
+    const days = customPlan.days.map((d, i) =>
+      i === dayIdx ? { sessions: [...(d.sessions || []), session] } : d
+    );
+    updateCustomPlan({ ...customPlan, days });
+  };
+
+  const removeCustomSession = (dayIdx, sessionIdx) => {
+    const days = customPlan.days.map((d, i) =>
+      i === dayIdx ? { sessions: d.sessions.filter((_, si) => si !== sessionIdx) } : d
+    );
+    updateCustomPlan({ ...customPlan, days });
   };
 
   const handleGenerateAI = async () => {
@@ -386,8 +440,8 @@ export default function Planner({ onNavigate }) {
       {/* ─── MODO MANUAL ─────────────────────────────────────────────────── */}
       {mode === 'manual' && (
         <>
-          <div className="grid grid-cols-3 gap-3 fade-up delay-2">
-            {studyPlanTemplates.map(p => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 fade-up delay-2">
+            {[...studyPlanTemplates, { id: 'custom', name: 'Mi plan', icon: '✏️', hoursPerWeek: customPlan.hoursPerWeek }].map(p => (
               <button
                 key={p.id}
                 onClick={() => handleChangePlan(p.id)}
@@ -403,25 +457,39 @@ export default function Planner({ onNavigate }) {
                   {p.name}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: selectedPlan === p.id ? 'rgba(255,255,255,0.55)' : 'rgba(12,31,61,0.45)' }}>
-                  {p.hoursPerWeek}h / semana
+                  {p.id === 'custom' ? (p.hoursPerWeek > 0 ? `${p.hoursPerWeek}h / semana` : 'Personalizado') : `${p.hoursPerWeek}h / semana`}
                 </p>
               </button>
             ))}
           </div>
 
           <PlanProgress plan={activePlan} completedCount={completedCount} totalSessions={totalSessions} pct={pct} onReset={resetWeek} />
-          <PlanDays plan={activePlan} checked={checked} onToggle={toggle} />
 
-          <div className="p-5 rounded-2xl fade-up"
-            style={{ background: 'rgba(29,78,216,0.06)', border: '1px solid rgba(29,78,216,0.15)' }}>
-            <div className="flex items-start gap-3">
-              <Zap size={15} style={{ color: '#1d4ed8', flexShrink: 0, marginTop: 1 }} />
-              <p className="text-sm leading-relaxed" style={{ color: 'rgba(12,31,61,0.65)' }}>
-                <strong style={{ color: '#0c1f3d' }}>Consejo:</strong> El plan manual es genérico para todos los estudiantes.
-                Usa el <strong style={{ color: '#1d4ed8' }}>Plan con IA</strong> para un plan basado en tus resultados y objetivo real.
-              </p>
+          {selectedPlan === 'custom' ? (
+            <CustomPlanEditor
+              plan={customPlan}
+              checked={checked}
+              onToggle={toggle}
+              onAddSession={addCustomSession}
+              onRemoveSession={removeCustomSession}
+            />
+          ) : (
+            <PlanDays plan={activePlan} checked={checked} onToggle={toggle} />
+          )}
+
+          {selectedPlan !== 'custom' && (
+            <div className="p-5 rounded-2xl fade-up"
+              style={{ background: 'rgba(29,78,216,0.06)', border: '1px solid rgba(29,78,216,0.15)' }}>
+              <div className="flex items-start gap-3">
+                <Zap size={15} style={{ color: '#1d4ed8', flexShrink: 0, marginTop: 1 }} />
+                <p className="text-sm leading-relaxed" style={{ color: 'rgba(12,31,61,0.65)' }}>
+                  <strong style={{ color: '#0c1f3d' }}>Consejo:</strong> Los planes predefinidos son genéricos.
+                  Selecciona <strong style={{ color: '#0c1f3d' }}>Mi plan ✏️</strong> para crear sesiones personalizadas,
+                  o usa <strong style={{ color: '#1d4ed8' }}>Plan con IA</strong> para un plan basado en tus resultados reales.
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
@@ -456,6 +524,185 @@ function PlanProgress({ plan, completedCount, totalSessions, pct, onReset }) {
           <RotateCcw size={11} /> Reiniciar semana
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Editor de plan personalizado ────────────────────────────────────────────
+const CUSTOM_EXAM_OPTIONS = [
+  { id: 'lectora',  label: 'Lectora',   icon: '📖' },
+  { id: 'm1',       label: 'Mat. M1',   icon: '📐' },
+  { id: 'm2',       label: 'Mat. M2',   icon: '📊' },
+  { id: 'historia', label: 'Historia',  icon: '🏛️' },
+  { id: 'ciencias', label: 'Ciencias',  icon: '🔬' },
+];
+const DURATION_OPTIONS = [30, 45, 60, 90];
+
+function CustomPlanEditor({ plan, checked, onToggle, onAddSession, onRemoveSession }) {
+  const [addingDay, setAddingDay] = useState(null);
+  const [form, setForm] = useState({ examId: 'lectora', topic: '', duration: 60 });
+
+  const submitSession = (dayIdx) => {
+    if (!form.topic.trim()) return;
+    onAddSession(dayIdx, { examId: form.examId, topic: form.topic.trim(), duration: form.duration });
+    setForm({ examId: 'lectora', topic: '', duration: 60 });
+    setAddingDay(null);
+  };
+
+  if (!plan?.days) return null;
+
+  return (
+    <div className="space-y-4 fade-up delay-2">
+      {plan.days.map((day, di) => {
+        const isAdding = addingDay === di;
+        const sessions = day.sessions || [];
+        const dayMinutes = sessions.reduce((s, ss) => s + (ss.duration || 0), 0);
+        const dayDone = sessions.length > 0 && sessions.every((_, si) => checked[`${di}-${si}`]);
+
+        return (
+          <div key={di} className="p-5 rounded-3xl" style={{ background: 'white', boxShadow: '0 2px 16px rgba(12,31,61,0.06)' }}>
+            {/* Cabecera del día */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
+                  style={{
+                    background: dayDone ? 'rgba(16,185,129,0.12)' : 'rgba(12,31,61,0.06)',
+                    color: dayDone ? '#10b981' : '#0c1f3d',
+                  }}>
+                  {di + 1}
+                </div>
+                <div>
+                  <p className="font-semibold text-sm" style={{ color: '#0c1f3d' }}>{DAYS[di]}</p>
+                  <p className="text-xs" style={{ color: 'rgba(12,31,61,0.35)' }}>
+                    {sessions.length === 0
+                      ? 'Sin sesiones'
+                      : `${sessions.length} sesión${sessions.length > 1 ? 'es' : ''} · ${dayMinutes} min`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAddingDay(isAdding ? null : di)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors min-h-[36px]"
+                style={{
+                  background: isAdding ? 'rgba(239,68,68,0.08)' : 'rgba(29,78,216,0.08)',
+                  color: isAdding ? '#ef4444' : '#1d4ed8',
+                }}
+              >
+                {isAdding ? <><X size={12} />Cancelar</> : <><Plus size={12} />Agregar</>}
+              </button>
+            </div>
+
+            {/* Sesiones existentes */}
+            {sessions.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {sessions.map((session, si) => {
+                  const key = `${di}-${si}`;
+                  const isDone = !!checked[key];
+                  const examOpt = CUSTOM_EXAM_OPTIONS.find(e => e.id === session.examId);
+                  return (
+                    <div key={si} className="flex items-center gap-3 px-3 py-2.5 rounded-xl group"
+                      style={{
+                        background: isDone ? 'rgba(16,185,129,0.06)' : 'rgba(12,31,61,0.03)',
+                        border: `1px solid ${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(12,31,61,0.06)'}`,
+                      }}>
+                      <button onClick={() => onToggle(key)} className="flex-shrink-0 p-0.5">
+                        {isDone
+                          ? <CheckSquare size={16} style={{ color: '#10b981' }} />
+                          : <Square size={16} style={{ color: 'rgba(12,31,61,0.2)' }} />
+                        }
+                      </button>
+                      <span className="text-sm flex-shrink-0">{examOpt?.icon || '📚'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate"
+                          style={{
+                            color: isDone ? 'rgba(12,31,61,0.4)' : '#0c1f3d',
+                            textDecoration: isDone ? 'line-through' : 'none',
+                          }}>{session.topic}</p>
+                        <p className="text-xs" style={{ color: 'rgba(12,31,61,0.35)' }}>
+                          {examOpt?.label || session.examId} · {session.duration} min
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => onRemoveSession(di, si)}
+                        className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-red-50"
+                        title="Eliminar sesión"
+                      >
+                        <Trash2 size={13} style={{ color: '#ef4444' }} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Formulario para agregar sesión */}
+            {isAdding && (
+              <div className="mt-3 p-4 rounded-2xl space-y-3"
+                style={{ background: 'rgba(29,78,216,0.04)', border: '1.5px dashed rgba(29,78,216,0.2)' }}>
+                {/* Selector de prueba */}
+                <div>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'rgba(12,31,61,0.5)' }}>Prueba</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CUSTOM_EXAM_OPTIONS.map(e => (
+                      <button key={e.id} onClick={() => setForm(f => ({ ...f, examId: e.id }))}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: form.examId === e.id ? 'rgba(29,78,216,0.15)' : 'white',
+                          color: form.examId === e.id ? '#1d4ed8' : 'rgba(12,31,61,0.5)',
+                          border: form.examId === e.id ? '1px solid rgba(29,78,216,0.3)' : '1px solid rgba(12,31,61,0.1)',
+                        }}>
+                        {e.icon} {e.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Tema */}
+                <div>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'rgba(12,31,61,0.5)' }}>Tema</p>
+                  <input
+                    type="text" value={form.topic}
+                    onChange={e => setForm(f => ({ ...f, topic: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && submitSession(di)}
+                    placeholder="ej: Localizar información en textos"
+                    className="w-full text-sm px-3 py-2.5 rounded-xl outline-none"
+                    style={{ background: 'white', border: '1.5px solid rgba(12,31,61,0.12)', color: '#0c1f3d' }}
+                  />
+                </div>
+                {/* Duración */}
+                <div>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'rgba(12,31,61,0.5)' }}>Duración</p>
+                  <div className="flex gap-1.5">
+                    {DURATION_OPTIONS.map(d => (
+                      <button key={d} onClick={() => setForm(f => ({ ...f, duration: d }))}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                        style={{
+                          background: form.duration === d ? 'rgba(29,78,216,0.15)' : 'white',
+                          color: form.duration === d ? '#1d4ed8' : 'rgba(12,31,61,0.5)',
+                          border: form.duration === d ? '1px solid rgba(29,78,216,0.3)' : '1px solid rgba(12,31,61,0.1)',
+                        }}>
+                        {d}min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Confirmar */}
+                <button onClick={() => submitSession(di)} disabled={!form.topic.trim()}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
+                  + Agregar al {DAYS[di]}
+                </button>
+              </div>
+            )}
+
+            {/* Estado vacío */}
+            {sessions.length === 0 && !isAdding && (
+              <p className="text-xs text-center py-1" style={{ color: 'rgba(12,31,61,0.28)' }}>
+                Día libre — agrega sesiones o déjalo como descanso
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

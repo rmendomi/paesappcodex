@@ -1,10 +1,35 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { buildProgressStats, createDiagnosticSessions } from '../lib/progress';
 import { api } from '../api';
 
 const AuthContext = createContext(null);
 
-const EXAM_IDS = ['lectora', 'm1', 'm2', 'historia', 'ciencias'];
+const DEFAULT_STREAK  = { current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} };
+const DEFAULT_PLANNER = { weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' };
+
+// ── Cache localStorage (hidratación instantánea al recargar) ─────────────────
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutos
+
+function getCached(email) {
+  try {
+    const raw = localStorage.getItem(`paes_cache_${email}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+}
+
+function setCached(email, data) {
+  try {
+    localStorage.setItem(`paes_cache_${email}`, JSON.stringify({ data, ts: Date.now() }));
+  } catch { /* cuota llena, ignorar */ }
+}
+
+function clearCached(email) {
+  try { localStorage.removeItem(`paes_cache_${email}`); } catch { }
+}
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -34,12 +59,22 @@ function computeNextStreak(s) {
 export function AuthProvider({ children }) {
   const [user,      setUser]      = useState(null);
   const [sessions,  setSessions]  = useState([]);
-  const [streak,    setStreak]    = useState({ current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} });
-  const [planner,   setPlanner]   = useState({ weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
+  const [streak,    setStreak]    = useState(DEFAULT_STREAK);
+  const [planner,   setPlanner]   = useState(DEFAULT_PLANNER);
   const [leaderboard, setLeaderboard] = useState([]);
   const [authLoading, setAuthLoading] = useState(true);
 
   const loadUserData = useCallback(async (email) => {
+    // 1. Hidratar desde cache inmediatamente (UX instantáneo al recargar)
+    const cached = getCached(email);
+    if (cached) {
+      if (cached.user)    setUser(cached.user);
+      if (cached.sessions) setSessions(cached.sessions);
+      if (cached.streak)  setStreak(cached.streak);
+      if (cached.planner) setPlanner(cached.planner);
+    }
+
+    // 2. Fetch datos frescos desde Supabase
     try {
       const profile = await api.getUserProfile(email);
       if (!profile) {
@@ -49,7 +84,8 @@ export function AuthProvider({ children }) {
       setUser(profile);
 
       const data = await api.getUserData(email);
-      setSessions(data.sessions || []);
+      const freshSessions = data.sessions || [];
+      setSessions(freshSessions);
 
       const raw = data.streak || {};
       const normalized = {
@@ -65,7 +101,11 @@ export function AuthProvider({ children }) {
         api.updateStreak(email, next).catch(() => {});
       }
 
-      setPlanner(data.planner || { weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
+      const freshPlanner = data.planner || DEFAULT_PLANNER;
+      setPlanner(freshPlanner);
+
+      // 3. Actualizar cache con datos frescos
+      setCached(email, { user: profile, sessions: freshSessions, streak: next, planner: freshPlanner });
     } catch (err) {
       console.error('[AuthContext] loadUserData:', err);
     }
@@ -96,8 +136,8 @@ export function AuthProvider({ children }) {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setSessions([]);
-        setStreak({ current: 0, best: 0, totalDays: 0, lastActivity: '', history: {} });
-        setPlanner({ weekId: '', planId: 'standard', progress: {}, planContent: null, generatedBy: 'heuristic' });
+        setStreak(DEFAULT_STREAK);
+        setPlanner(DEFAULT_PLANNER);
         setLeaderboard([]);
         if (active) setAuthLoading(false);
       }
@@ -151,8 +191,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (user?.email) clearCached(user.email);
     await supabase.auth.signOut();
-  }, []);
+  }, [user]);
 
   const resetPassword = useCallback(async (email) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -250,6 +291,10 @@ export function AuthProvider({ children }) {
       if (!user) return;
       const result = await api.saveDiagnostico(user.email, resultados);
       setUser((prev) => ({ ...prev, diagnosticoCompletado: true }));
+      setSessions((prev) => [
+        ...prev,
+        ...createDiagnosticSessions(user.email, resultados, result?.version, result?.completedAt),
+      ]);
       return result;
     },
     [user]
@@ -273,17 +318,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const progressStats = useMemo(() => {
-    const stats = {};
-    EXAM_IDS.forEach((id) => {
-      const examSessions = sessions.filter((s) => s.examId === id);
-      stats[id] = {
-        attempted: examSessions.length,
-        correct:   examSessions.reduce((sum, s) => sum + (Number(s.correct) || 0), 0),
-        lastScore: examSessions.length > 0 ? Number(examSessions[examSessions.length - 1].score) : 0,
-        trend:     examSessions.slice(-5).map((s) => Number(s.score)),
-      };
-    });
-    return stats;
+    return buildProgressStats(sessions);
   }, [sessions]);
 
   const recentActivity = useMemo(() => {

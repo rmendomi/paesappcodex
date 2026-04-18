@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, RotateCcw, LayoutDashboard, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
 import { getExam } from '../data/catalogData';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
 
 export default function Results({ data, onPracticeAgain, onDashboard }) {
-  const { saveSession } = useAuth();
+  const { saveSession, user } = useAuth();
   const saved = useRef(false);
   const [saveError, setSaveError] = useState(false);
 
-  const { examId, questions, answers, correct, total, score, mode = 'practice' } = data;
+  const { examId, questions, answers, correct, total, score, mode = 'practice', skillId, questionIds, wrongIds } = data;
   const exam      = getExam(examId);
   const pct       = Math.round((correct / total) * 100);
   const radius    = 45;
   const circ      = 2 * Math.PI * radius;
   const offset    = circ - (pct / 100) * circ;
   const errors    = answers.filter(a => !a.correct);
-  const isExamMode = mode === 'exam';
+  const isExamMode = mode === 'exam' || mode === 'skill';
 
   // Guardar sesión en la API (una sola vez, evita doble escritura en StrictMode)
   useEffect(() => {
@@ -25,7 +26,19 @@ export default function Results({ data, onPracticeAgain, onDashboard }) {
       saved.current = true;
       (async () => {
         try {
-          await saveSession({ examId, mode, correct, total, score });
+          await saveSession({
+            examId,
+            mode,
+            skillId,
+            correct,
+            total,
+            score,
+            questionIds: questionIds || questions.map(q => q.id),
+            wrongIds: wrongIds || answers.filter(a => !a.correct).map(a => a.questionId),
+          });
+          if (user?.email) {
+            api.updateQuestionsResults(user.email, answers).catch(() => {});
+          }
           setSaveError(false);
         } catch (err) {
           console.error('[Results] No se pudo guardar la sesión:', err);
