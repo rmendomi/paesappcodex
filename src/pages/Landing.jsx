@@ -13,7 +13,7 @@ const steps = [
 const platformStats = [
   { value: '+200',  label: 'Preguntas en el banco',    sub: 'Cubren todas las habilidades PAES',       icon: BookOpen,  color: '#1d4ed8', bg: 'rgba(29,78,216,0.1)'  },
   { value: '5',     label: 'Pruebas PAES completas',   sub: 'Lectora, M1, M2, Historia y Ciencias',    icon: Target,    color: '#0891b2', bg: 'rgba(8,145,178,0.1)'  },
-  { value: 'IA',    label: 'Preguntas generadas al instante', sub: 'Gemini crea preguntas únicas cada sesión', icon: Sparkles, color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
+  { value: 'IA',    label: 'Preguntas generadas al instante', sub: 'Claude crea preguntas únicas cada sesión', icon: Sparkles, color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
   { value: '100%',  label: 'Gratis para siempre',      sub: 'Sin suscripción ni tarjeta requerida',    icon: Trophy,    color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
 ];
 
@@ -28,8 +28,8 @@ const differentiators = [
   {
     icon: Sparkles,
     title: 'Preguntas únicas generadas por IA',
-    desc: 'Además del banco de preguntas, Gemini crea preguntas originales en tiempo real. Nunca te quedas sin material nuevo para practicar.',
-    tag: 'Powered by Gemini',
+    desc: 'Además del banco de preguntas, Claude crea preguntas originales en tiempo real. Nunca te quedas sin material nuevo para practicar.',
+    tag: 'Powered by Claude',
     tagColor: '#1d4ed8',
   },
   {
