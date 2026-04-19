@@ -454,7 +454,7 @@ export const api = {
     return { ok: true };
   },
 
-  async saveSession({ userEmail, examId, mode, skillId, correct, total, score, date, questionIds, wrongIds }) {
+  async saveSession({ userEmail, examId, mode, skillId, correct, total, score, date, questionIds, wrongIds, securityEvents, securityWarnings }) {
     const id = `${userEmail}_${Date.now()}`;
     const payload = {
       id, user_email: userEmail, exam_id: examId,
@@ -464,10 +464,13 @@ export const api = {
       skill_id: skillId || null,
       question_ids: questionIds || [],
       wrong_ids: wrongIds || [],
+      security_events: securityEvents || [],
+      security_warnings: securityWarnings || 0,
     };
 
     const { error } = await supabase.from('sesiones').insert(payload);
     if (error && error.message?.includes('column')) {
+      // Fallback: intentar sin columnas nuevas para instalaciones sin migración
       const { error: fallbackError } = await supabase.from('sesiones').insert({
         id, user_email: userEmail, exam_id: examId,
         mode: mode || 'practice',
@@ -496,6 +499,8 @@ export const api = {
       skill_id: s.skill_id || null,
       questionIds: s.question_ids || [],
       wrongIds: s.wrong_ids || [],
+      securityEvents: s.security_events || [],
+      securityWarnings: s.security_warnings || 0,
     }));
 
     const diagnosticSessions = (diagRes.data || []).flatMap((d) =>

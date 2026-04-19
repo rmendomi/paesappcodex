@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertCircle, Clock, Flag } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertCircle, Clock, Flag, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { getExam, toScore } from '../data/catalogData';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
@@ -27,7 +27,6 @@ const KEYWORD_PATTERNS = [
 function highlightKeywords(text) {
   if (!text) return null;
 
-  // Marcar posiciones de todas las keywords
   const marks = new Array(text.length).fill(false);
   KEYWORD_PATTERNS.forEach(pattern => {
     const regex = new RegExp(pattern.source, pattern.flags);
@@ -39,7 +38,6 @@ function highlightKeywords(text) {
     }
   });
 
-  // Construir segmentos resaltados
   const segments = [];
   let i = 0;
   while (i < text.length) {
@@ -89,10 +87,55 @@ export default function Practice({ data, onFinish, onBack }) {
   const [reported,    setReported]    = useState({});
   const [reportToast, setReportToast] = useState(false);
 
-  // Timer: solo en modo ensayo global
+  // Timer: solo en modo ensayo
   const totalSeconds = isExamMode ? (EXAM_DURATIONS[examId] || 100 * 60) : 0;
   const [timeLeft,   setTimeLeft]   = useState(totalSeconds);
   const [timerDone,  setTimerDone]  = useState(false);
+
+  // Modo ensayo seguro
+  const [safeExamReady,      setSafeExamReady]      = useState(!isExamMode);
+  const [safeCommitted,      setSafeCommitted]      = useState(false);
+  const [fsWarning,          setFsWarning]          = useState(false);
+  const [securityEvents,     setSecurityEvents]     = useState([]);
+  const [securityWarnings,   setSecurityWarnings]   = useState(0);
+  const [showSecurityOverlay,setShowSecurityOverlay]= useState(false);
+  const [securityToast,      setSecurityToast]      = useState(null);
+
+  // Refs para acceso estable en callbacks sin stale closure
+  const currentIdxRef      = useRef(0);
+  const securityEventsRef  = useRef([]);
+  const securityWarningsRef= useRef(0);
+  const toastTimerRef      = useRef(null);
+
+  useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
+
+  // Salir de fullscreen al desmontar
+  useEffect(() => {
+    return () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+  }, []);
+
+  // Registrar evento de integridad
+  const addSecurityEvent = useCallback((type, label) => {
+    const event = {
+      type,
+      label,
+      timestamp: new Date().toISOString(),
+      questionIndex: currentIdxRef.current,
+      mode,
+    };
+    securityEventsRef.current  = [...securityEventsRef.current, event];
+    securityWarningsRef.current += 1;
+    setSecurityEvents([...securityEventsRef.current]);
+    setSecurityWarnings(securityWarningsRef.current);
+
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setSecurityToast('Evento registrado: mantente en la pantalla del ensayo y responde sin ayuda externa.');
+    toastTimerRef.current = setTimeout(() => setSecurityToast(null), 4500);
+  }, [mode]);
 
   const finishExam = useCallback((currentAnswers) => {
     const correct = currentAnswers.filter(a => a.correct).length;
@@ -103,15 +146,16 @@ export default function Practice({ data, onFinish, onBack }) {
       correct, total: questions.length,
       score: toScore(correct, questions.length),
       mode, questionIds, wrongIds,
+      securityEvents:  securityEventsRef.current,
+      securityWarnings: securityWarningsRef.current,
     });
   }, [examId, questions, mode, skillId, onFinish]);
 
-  // Countdown timer
+  // Countdown timer — espera a que el ensayo seguro esté listo
   useEffect(() => {
-    if (!isExamMode || timerDone) return;
+    if (!isExamMode || !safeExamReady || timerDone) return;
     if (timeLeft <= 0) {
       setTimerDone(true);
-      // Auto-submit con las respuestas actuales al acabar el tiempo
       setAnswers(prev => {
         finishExam(prev);
         return prev;
@@ -120,13 +164,107 @@ export default function Practice({ data, onFinish, onBack }) {
     }
     const interval = setInterval(() => setTimeLeft(t => t - 1), 1000);
     return () => clearInterval(interval);
-  }, [isExamMode, timeLeft, timerDone, finishExam]);
+  }, [isExamMode, safeExamReady, timeLeft, timerDone, finishExam]);
+
+  // Monitoreo de integridad — solo en modo ensayo activo
+  useEffect(() => {
+    if (!isExamMode || !safeExamReady) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        addSecurityEvent('tab_hidden', 'Cambio de pestaña o ventana minimizada');
+        setShowSecurityOverlay(true);
+      } else {
+        setShowSecurityOverlay(false);
+      }
+    };
+    const handleBlur = () => {
+      addSecurityEvent('window_blur', 'Ventana perdió el foco');
+      setShowSecurityOverlay(true);
+    };
+    const handleFocus  = () => setShowSecurityOverlay(false);
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        addSecurityEvent('fullscreen_exit', 'Salió de pantalla completa');
+        setShowSecurityOverlay(true);
+      } else {
+        setShowSecurityOverlay(false);
+      }
+    };
+    const handleCopy = (e) => {
+      e.preventDefault();
+      addSecurityEvent('copy', 'Intento de copiar texto');
+    };
+    const handleCut = (e) => {
+      e.preventDefault();
+      addSecurityEvent('cut', 'Intento de cortar texto');
+    };
+    const handlePaste = (e) => {
+      e.preventDefault();
+      addSecurityEvent('paste', 'Intento de pegar texto');
+    };
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      addSecurityEvent('contextmenu', 'Menú contextual (click derecho)');
+    };
+    const handleKeyDown = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (e.key === 'PrintScreen') {
+        addSecurityEvent('printscreen', 'Posible intento de captura (PrintScreen)');
+      } else if (ctrl && e.key.toLowerCase() === 'c') {
+        addSecurityEvent('copy_key', 'Atajo copiar (Ctrl+C)');
+      } else if (ctrl && e.key.toLowerCase() === 'v') {
+        addSecurityEvent('paste_key', 'Atajo pegar (Ctrl+V)');
+      } else if (ctrl && e.key.toLowerCase() === 'x') {
+        addSecurityEvent('cut_key', 'Atajo cortar (Ctrl+X)');
+      } else if (ctrl && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        addSecurityEvent('print', 'Intento de imprimir (Ctrl+P)');
+      } else if (ctrl && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        addSecurityEvent('save', 'Atajo guardar (Ctrl+S)');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('copy', handleCopy);
+    document.addEventListener('cut', handleCut);
+    document.addEventListener('paste', handlePaste);
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('copy', handleCopy);
+      document.removeEventListener('cut', handleCut);
+      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isExamMode, safeExamReady, addSecurityEvent]);
+
+  // Iniciar ensayo seguro: solicitar fullscreen y activar monitoreo
+  const handleStartSafeExam = async () => {
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      setFsWarning(true);
+    }
+    setSafeExamReady(true);
+  };
 
   const q        = questions[currentIdx];
   const isLast   = currentIdx === questions.length - 1;
   const progress = Math.round(((currentIdx + (confirmed ? 1 : 0)) / questions.length) * 100);
 
-  // Color del timer según tiempo restante
   const timerPct    = totalSeconds > 0 ? timeLeft / totalSeconds : 1;
   const timerColor  = timerPct > 0.33 ? '#10b981' : timerPct > 0.15 ? '#f59e0b' : '#ef4444';
   const timerBg     = timerPct > 0.33 ? 'rgba(16,185,129,0.08)' : timerPct > 0.15 ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)';
@@ -159,7 +297,6 @@ export default function Practice({ data, onFinish, onBack }) {
     setReported(prev => ({ ...prev, [questionId]: true }));
     setReportToast(true);
     setTimeout(() => setReportToast(false), 3500);
-    // Guardar en localStorage para trazabilidad (sin llamada a servidor)
     try {
       const key = 'paes_reported_questions';
       const existing = JSON.parse(localStorage.getItem(key) || '[]');
@@ -186,8 +323,121 @@ export default function Practice({ data, onFinish, onBack }) {
     return '';
   };
 
+  // ── Modal de compromiso (ensayo seguro) ──────────────────────────────
+  if (isExamMode && !safeExamReady) {
+    return (
+      <div className="min-h-screen grain flex items-center justify-center p-4"
+        style={{ background: '#f8faff' }}>
+        <div className="w-full max-w-lg rounded-3xl p-8"
+          style={{ background: 'white', boxShadow: '0 30px 80px rgba(12,31,61,0.15)', border: '1px solid rgba(12,31,61,0.06)' }}>
+
+          {/* Icono + título */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{ background: 'rgba(239,68,68,0.1)' }}>
+              <ShieldCheck size={22} style={{ color: '#dc2626' }} />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold" style={{ color: '#0c1f3d' }}>
+                Ensayo seguro
+              </h2>
+              <p className="text-xs" style={{ color: 'rgba(12,31,61,0.45)' }}>
+                Integridad académica — {exam.icon} {skillName || exam.name}
+              </p>
+            </div>
+          </div>
+
+          {/* Mensaje principal */}
+          <div className="p-4 rounded-2xl mb-4"
+            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)' }}>
+            <p className="text-sm leading-relaxed" style={{ color: '#92400e' }}>
+              Recuerda: responder con IA no te ayuda. En la PAES real no tendrás una IA al lado;
+              si hoy haces trampa, después no sabrás hacerlo solo.{' '}
+              <strong>Te haces un daño.</strong>
+            </p>
+          </div>
+
+          {/* Reglas */}
+          <div className="p-4 rounded-2xl mb-5"
+            style={{ background: '#f8faff', border: '1px solid rgba(12,31,61,0.08)' }}>
+            <p className="text-xs leading-relaxed" style={{ color: 'rgba(12,31,61,0.6)' }}>
+              Durante este ensayo <strong style={{ color: '#0c1f3d' }}>no está permitido</strong> usar
+              ChatGPT, Gemini, Copilot u otra IA para responder; tampoco grabar la pantalla, sacar capturas,
+              copiar preguntas, cambiar de pestaña, usar buscadores, celulares, apuntes o pedir ayuda externa.
+            </p>
+          </div>
+
+          {/* Advertencia fullscreen (si aplica) */}
+          {fsWarning && (
+            <div className="p-3 rounded-xl mb-4"
+              style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <p className="text-xs" style={{ color: '#991b1b' }}>
+                No se pudo activar pantalla completa. Puedes continuar, pero se recomienda usar
+                el ensayo en pantalla completa para mayor concentración.
+              </p>
+            </div>
+          )}
+
+          {/* Checkbox de compromiso */}
+          <label className="flex items-start gap-3 mb-6 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={safeCommitted}
+              onChange={e => setSafeCommitted(e.target.checked)}
+              className="mt-0.5 w-4 h-4 flex-shrink-0 rounded"
+              style={{ accentColor: '#1d4ed8' }}
+            />
+            <span className="text-sm leading-relaxed" style={{ color: '#0c1f3d' }}>
+              Entiendo y me comprometo a responder sin ayuda externa.
+            </span>
+          </label>
+
+          {/* Acciones */}
+          <div className="flex gap-3">
+            <button
+              onClick={onBack}
+              className="px-5 py-3 rounded-2xl text-sm font-medium transition-all"
+              style={{ color: 'rgba(12,31,61,0.5)', border: '1.5px solid rgba(12,31,61,0.12)', background: 'white' }}>
+              Cancelar
+            </button>
+            <button
+              onClick={handleStartSafeExam}
+              disabled={!safeCommitted}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
+              <ShieldCheck size={15} />
+              Comenzar ensayo seguro
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen grain" style={{ background: '#f8faff' }}>
+
+      {/* Overlay de integridad (cambio de pestaña / salida de fullscreen) */}
+      {isExamMode && showSecurityOverlay && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
+          style={{ background: 'rgba(12,31,61,0.92)', backdropFilter: 'blur(8px)' }}>
+          <ShieldAlert size={48} style={{ color: '#fbbf24', marginBottom: 20 }} />
+          <h2 className="font-display text-2xl font-semibold text-white mb-3 text-center">
+            Vuelve al ensayo para continuar
+          </h2>
+          <p className="text-white/60 text-sm text-center max-w-sm mb-6">
+            Este evento quedó registrado. Haz clic en el botón para retomar el ensayo.
+          </p>
+          <button
+            onClick={() => setShowSecurityOverlay(false)}
+            className="px-8 py-3.5 rounded-2xl font-semibold text-sm"
+            style={{ background: '#1d4ed8', color: 'white' }}>
+            Retomar ensayo
+          </button>
+        </div>
+      )}
+
       {/* Toast reporte enviado */}
       {reportToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium text-white shadow-xl"
@@ -195,6 +445,15 @@ export default function Practice({ data, onFinish, onBack }) {
           Pregunta reportada. Gracias por tu aporte.
         </div>
       )}
+
+      {/* Toast de integridad */}
+      {securityToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-3 rounded-xl text-sm font-medium shadow-xl max-w-sm text-center"
+          style={{ background: '#92400e', color: 'white', border: '1px solid rgba(245,158,11,0.3)' }}>
+          {securityToast}
+        </div>
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-30 backdrop-blur-md border-b"
         style={{ background: 'rgba(248,250,255,0.95)', borderColor: 'rgba(12,31,61,0.07)' }}>
@@ -220,7 +479,15 @@ export default function Practice({ data, onFinish, onBack }) {
           </div>
 
           <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Timer — solo modo ensayo */}
+            {/* Contador de integridad */}
+            {isExamMode && securityWarnings > 0 && (
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
+                style={{ background: 'rgba(245,158,11,0.1)', color: '#92400e', border: '1px solid rgba(245,158,11,0.25)' }}>
+                <ShieldAlert size={11} />
+                Eventos: {securityWarnings}
+              </div>
+            )}
+            {/* Timer */}
             {isExamMode && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-sm font-bold"
                 style={{ background: timerBg, border: `1px solid ${timerBorder}`, color: timerColor }}>
@@ -240,7 +507,7 @@ export default function Practice({ data, onFinish, onBack }) {
           <div className="h-1 transition-all duration-500"
             style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${exam.color}99, ${exam.color})` }} />
         </div>
-        {/* Timer bar — solo modo ensayo */}
+        {/* Timer bar */}
         {isExamMode && totalSeconds > 0 && (
           <div className="h-0.5" style={{ background: 'rgba(12,31,61,0.05)' }}>
             <div className="h-0.5 transition-all duration-1000"
@@ -282,7 +549,6 @@ export default function Practice({ data, onFinish, onBack }) {
           <p className="text-base leading-relaxed whitespace-pre-line" style={{ color: '#0c1f3d' }}>
             {highlightKeywords(q.text)}
           </p>
-          {/* Leyenda del resaltado */}
           <div className="mt-3 pt-3 flex items-center gap-1.5" style={{ borderTop: '1px solid rgba(12,31,61,0.04)' }}>
             <mark style={{ background: 'rgba(245,158,11,0.25)', color: '#92400e', borderRadius: '3px', padding: '0 2px', fontSize: '11px', fontWeight: 600 }}>
               palabras clave

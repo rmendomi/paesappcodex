@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, XCircle, RotateCcw, LayoutDashboard, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, RotateCcw, LayoutDashboard, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { getExam } from '../data/catalogData';
@@ -11,7 +11,8 @@ export default function Results({ data, onPracticeAgain, onDashboard }) {
   const saved = useRef(false);
   const [saveError, setSaveError] = useState(false);
 
-  const { examId, questions, answers, correct, total, score, mode = 'practice', skillId, questionIds, wrongIds } = data;
+  const { examId, questions, answers, correct, total, score, mode = 'practice', skillId, questionIds, wrongIds,
+          securityEvents = [], securityWarnings = 0 } = data;
   const exam      = getExam(examId);
   const pct       = Math.round((correct / total) * 100);
   const radius    = 45;
@@ -35,6 +36,8 @@ export default function Results({ data, onPracticeAgain, onDashboard }) {
             score,
             questionIds: questionIds || questions.map(q => q.id),
             wrongIds: wrongIds || answers.filter(a => !a.correct).map(a => a.questionId),
+            securityEvents,
+            securityWarnings,
           });
           if (user?.email) {
             api.updateQuestionsResults(user.email, answers).catch(() => {});
@@ -139,6 +142,31 @@ export default function Results({ data, onPracticeAgain, onDashboard }) {
             <p className="text-xs mt-1" style={{ color: 'rgba(153,27,27,0.8)' }}>
               Revisa tu conexión e inténtalo de nuevo para que aparezca en el ranking.
             </p>
+          </div>
+        )}
+
+        {/* Resumen de integridad — solo si hubo eventos en modo ensayo */}
+        {isExamMode && securityWarnings > 0 && (
+          <div className="mb-8 p-5 rounded-2xl fade-up delay-2"
+            style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.28)' }}>
+            <div className="flex items-start gap-3">
+              <ShieldAlert size={18} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+              <div className="flex-1">
+                <p className="text-sm font-semibold mb-1" style={{ color: '#92400e' }}>
+                  Este ensayo registró {securityWarnings} evento{securityWarnings !== 1 ? 's' : ''} de integridad
+                </p>
+                <div className="space-y-1 mt-2">
+                  {securityEvents.map((ev, i) => (
+                    <p key={i} className="text-xs" style={{ color: 'rgba(146,64,14,0.8)' }}>
+                      • {ev.label}
+                      <span className="ml-1.5 opacity-60">
+                        — P{ev.questionIndex + 1} · {new Date(ev.timestamp).toLocaleTimeString('es-CL')}
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

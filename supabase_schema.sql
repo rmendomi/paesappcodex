@@ -18,14 +18,19 @@ create table if not exists usuarios (
 
 -- Tabla de sesiones de práctica
 create table if not exists sesiones (
-  id          text        primary key,
-  user_email  text        references usuarios(email) on delete cascade,
-  exam_id     text,
-  mode        text        default 'practice',
-  correct     int         default 0,
-  total       int         default 0,
-  score       int         default 0,
-  date        timestamptz default now()
+  id                text        primary key,
+  user_email        text        references usuarios(email) on delete cascade,
+  exam_id           text,
+  mode              text        default 'practice',
+  correct           int         default 0,
+  total             int         default 0,
+  score             int         default 0,
+  date              timestamptz default now(),
+  skill_id          text,
+  question_ids      jsonb       default '[]',
+  wrong_ids         jsonb       default '[]',
+  security_events   jsonb       default '[]',
+  security_warnings int         default 0
 );
 create index if not exists sesiones_user_idx on sesiones(user_email);
 
