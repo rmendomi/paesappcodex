@@ -930,59 +930,51 @@ export const api = {
     if (!ctx) throw new Error('examId no reconocido: ' + examId);
 
     const requested = Math.max(1, Math.min(Number(count) || 5, 120));
-    const gasChunkSize = 10;
+    const chunkSize = 1; // 1 pregunta por chunk, todas en paralelo = mínima latencia
 
     // Estrategia inteligente:
     // 1) usar primero preguntas no vistas del banco
-    // 2) generar con IA SOLO el faltante (o todo si forceAI=true)
+    // 2) generar con IA el faltante en paralelo (o todo si forceAI=true)
     const bancoQuestions =
       userEmail && !forceAI
         ? await this.getBancoQuestions(examId, skillId, userEmail, requested)
         : [];
 
     const fromBanco = bancoQuestions.length;
-    let missing = forceAI ? requested : Math.max(0, requested - fromBanco);
+    const missing = forceAI ? requested : Math.max(0, requested - fromBanco);
     const aiQuestions = [];
-
     let usedStaticFallback = false;
-    while (missing > 0) {
-      const chunk = Math.min(gasChunkSize, missing);
+
+    if (missing > 0) {
+      const chunks = [];
+      for (let i = 0; i < missing; i += chunkSize) {
+        chunks.push(Math.min(chunkSize, missing - i));
+      }
       try {
-        const result = await callEdgeFunctionForQuestions({
-          examId,
-          skillId,
-          count: chunk,
-          userEmail,
-        });
-        const generated = result.questions || [];
-        if (generated.length === 0) break;
-
-        aiQuestions.push(...generated);
-        await saveToBancoIA(generated, examId, skillId, userEmail);
-        missing -= generated.length;
-
-        // Si el proveedor no devolvió el chunk completo, no insistimos.
-        if (generated.length < chunk) break;
+        const results = await Promise.all(
+          chunks.map(n => callEdgeFunctionForQuestions({ examId, skillId, count: n, userEmail }))
+        );
+        for (const result of results) {
+          aiQuestions.push(...(result.questions || []));
+        }
+        if (aiQuestions.length > 0) {
+          await saveToBancoIA(aiQuestions, examId, skillId, userEmail);
+        }
       } catch (e) {
-        // Si no hay preguntas de banco ni IA, usar banco estático como fallback
         if (fromBanco === 0 && aiQuestions.length === 0) {
           const staticFallback = getStaticFallbackQuestions(examId, skillId, requested);
           if (staticFallback.length > 0) {
             aiQuestions.push(...staticFallback);
             usedStaticFallback = true;
-            missing = 0;
-            break;
+          } else {
+            throw new Error(e.message);
           }
-          // Si tampoco hay estáticas, lanzar error original (sin el mensaje de timeout)
-          const msg = e.message;
-          throw new Error(msg);
         }
-        break;
       }
     }
 
     // Si aún faltan preguntas, completar con banco estático sin error
-    if (missing > 0 && !usedStaticFallback) {
+    if (!usedStaticFallback && (fromBanco + aiQuestions.length) < requested) {
       const needed = requested - fromBanco - aiQuestions.length;
       if (needed > 0) {
         const staticComplement = getStaticFallbackQuestions(examId, skillId, needed);
