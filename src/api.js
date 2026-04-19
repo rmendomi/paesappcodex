@@ -99,28 +99,30 @@ function parseAIResponse(raw) {
   throw new Error('La IA no devolviÃ³ JSON vÃ¡lido. Intenta nuevamente.');
 }
 
-async function callGASForQuestions(params) {
-  const gasUrl = import.meta.env.VITE_GAS_URL;
-  if (!gasUrl) throw new Error('VITE_GAS_URL no configurada en .env');
+async function callEdgeFunctionForQuestions(params) {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey    = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl) throw new Error('VITE_SUPABASE_URL no configurada en .env');
 
-  const url = `${gasUrl}?action=generateQuestion&examId=${encodeURIComponent(params.examId)}&skillId=${encodeURIComponent(params.skillId || '')}&count=${encodeURIComponent(params.count || 5)}&userEmail=${encodeURIComponent(params.userEmail || '')}`;
+  const url = `${supabaseUrl}/functions/v1/generate-question`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${anonKey}`,
+    },
+    body: JSON.stringify({
+      examId:    params.examId,
+      skillId:   params.skillId   || null,
+      count:     params.count     || 5,
+      userEmail: params.userEmail || '',
+    }),
+  });
 
-  try {
-    const resp = await fetch(url, { signal: controller.signal });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    return data;
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      throw new Error('GAS_TIMEOUT');
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  return data;
 }
 
 function getStaticFallbackQuestions(examId, skillId, count) {
@@ -906,34 +908,6 @@ export const api = {
       throw new Error('No se pudo construir el plan semanal.');
     }
 
-    // 2. Enriquecer con IA vía GAS (opcional – si falla, retorna plan heurístico)
-    const gasUrl = import.meta.env.VITE_GAS_URL;
-    if (gasUrl) {
-      try {
-        const url = `${gasUrl}?action=generateStudyPlan`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'generateStudyPlan',
-            name,
-            progressStats,
-            targets,
-            objetivoPrincipal,
-            heuristicAnalysis: plan.analysis,
-          }),
-        });
-        const aiResult = await resp.json();
-        if (aiResult?.ok && aiResult?.analysis) {
-          plan.analysis     = aiResult.analysis;
-          plan.tips         = aiResult.tips || [];
-          plan.generatedBy  = 'ai';
-        }
-      } catch (_) {
-        // IA no disponible — usar plan heurístico sin interrumpir
-      }
-    }
-
     return { ok: true, plan };
   },
 
@@ -974,7 +948,7 @@ export const api = {
     while (missing > 0) {
       const chunk = Math.min(gasChunkSize, missing);
       try {
-        const result = await callGASForQuestions({
+        const result = await callEdgeFunctionForQuestions({
           examId,
           skillId,
           count: chunk,
@@ -1000,9 +974,7 @@ export const api = {
             break;
           }
           // Si tampoco hay estáticas, lanzar error original (sin el mensaje de timeout)
-          const msg = e.message === 'GAS_TIMEOUT'
-            ? 'La generación de preguntas tardó demasiado y no hay preguntas disponibles en el banco. Intenta con otra habilidad.'
-            : e.message;
+          const msg = e.message;
           throw new Error(msg);
         }
         break;

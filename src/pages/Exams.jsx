@@ -313,7 +313,7 @@ export default function Exams({ onNavigate }) {
                         style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>Nuevo</span>
                     </div>
                     <p className="text-xs" style={{ color: 'rgba(12,31,61,0.5)' }}>
-                      10 preguntas generadas por Gemini · Retroalimentación inmediata
+                      10 preguntas generadas por Claude · Retroalimentación inmediata
                     </p>
                   </div>
                   <ArrowRight size={14} style={{ color: 'rgba(124,58,237,0.4)', marginTop: 3, flexShrink: 0 }} />
