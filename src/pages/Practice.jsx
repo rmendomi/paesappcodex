@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertCircle, Clock, Flag } from 'lucide-react';
 import { getExam, toScore } from '../data/catalogData';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
@@ -82,10 +82,12 @@ export default function Practice({ data, onFinish, onBack }) {
   const exam = getExam(examId);
   const isExamMode = mode === 'exam' || mode === 'skill';
 
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [selected,   setSelected]   = useState(null);
-  const [confirmed,  setConfirmed]  = useState(false);
-  const [answers,    setAnswers]    = useState([]);
+  const [currentIdx,  setCurrentIdx]  = useState(0);
+  const [selected,    setSelected]    = useState(null);
+  const [confirmed,   setConfirmed]   = useState(false);
+  const [answers,     setAnswers]     = useState([]);
+  const [reported,    setReported]    = useState({});
+  const [reportToast, setReportToast] = useState(false);
 
   // Timer: solo en modo ensayo global
   const totalSeconds = isExamMode ? (EXAM_DURATIONS[examId] || 100 * 60) : 0;
@@ -153,6 +155,20 @@ export default function Practice({ data, onFinish, onBack }) {
     }
   };
 
+  const handleReport = (questionId) => {
+    setReported(prev => ({ ...prev, [questionId]: true }));
+    setReportToast(true);
+    setTimeout(() => setReportToast(false), 3500);
+    // Guardar en localStorage para trazabilidad (sin llamada a servidor)
+    try {
+      const key = 'paes_reported_questions';
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!existing.includes(questionId)) {
+        localStorage.setItem(key, JSON.stringify([...existing, questionId]));
+      }
+    } catch { /* no crítico */ }
+  };
+
   const handleNext = () => {
     if (isLast) {
       finishExam(answers);
@@ -172,6 +188,13 @@ export default function Practice({ data, onFinish, onBack }) {
 
   return (
     <div className="min-h-screen grain" style={{ background: '#f8faff' }}>
+      {/* Toast reporte enviado */}
+      {reportToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium text-white shadow-xl"
+          style={{ background: '#0c1f3d', border: '1px solid rgba(255,255,255,0.1)' }}>
+          Pregunta reportada. Gracias por tu aporte.
+        </div>
+      )}
       {/* Header */}
       <div className="sticky top-0 z-30 backdrop-blur-md border-b"
         style={{ background: 'rgba(248,250,255,0.95)', borderColor: 'rgba(12,31,61,0.07)' }}>
@@ -325,6 +348,16 @@ export default function Practice({ data, onFinish, onBack }) {
                     ▶ Ver explicación en video
                   </a>
                 )}
+                <button
+                  onClick={() => handleReport(q.id)}
+                  disabled={!!reported[q.id]}
+                  aria-label="Reportar pregunta incorrecta"
+                  title="Reportar pregunta incorrecta"
+                  className="inline-flex items-center gap-1.5 mt-2 ml-2 text-xs px-2.5 py-1.5 rounded-lg transition-opacity disabled:opacity-40"
+                  style={{ background: 'rgba(239,68,68,0.07)', color: '#991b1b', border: '1px solid rgba(239,68,68,0.15)' }}>
+                  <Flag size={11} />
+                  {reported[q.id] ? 'Reportada' : 'Reportar'}
+                </button>
               </div>
             </div>
           </div>

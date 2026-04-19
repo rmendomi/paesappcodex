@@ -103,6 +103,8 @@ export default function Settings({ onNavigate }) {
   );
   const [colegios, setColegios] = useState([]);
   const [loadingColegios, setLoadingColegios] = useState(false);
+  const [errorColegios, setErrorColegios] = useState(false);
+  const [retryColegiosTick, setRetryColegiosTick] = useState(0);
   const [grade, setGrade] = useState(user?.gradeLevel || DEFAULT_GRADE);
   const [targets, setTargets] = useState({ ...initialTargets });
   const [targetInputs, setTargetInputs] = useState(buildTargetInputs(initialTargets));
@@ -161,32 +163,48 @@ export default function Settings({ onNavigate }) {
     if (!region) {
       setColegios([]);
       setLoadingColegios(false);
-      return () => {
-        active = false;
-      };
+      setErrorColegios(false);
+      return () => { active = false; };
     }
 
     setLoadingColegios(true);
+    setErrorColegios(false);
+
+    // Timeout defensivo de 10 segundos
+    const timeout = setTimeout(() => {
+      if (active) {
+        setLoadingColegios(false);
+        setErrorColegios(true);
+        setColegios([]);
+      }
+    }, 10_000);
+
     api
       .getColegiosByRegion(region)
       .then((data) => {
         if (!active) return;
+        clearTimeout(timeout);
         setColegios(data || []);
+        if (!data || data.length === 0) setErrorColegios(false);
       })
       .catch((err) => {
         if (!active) return;
+        clearTimeout(timeout);
         console.error('[Settings:getColegiosByRegion]', err);
         setColegios([]);
+        setErrorColegios(true);
       })
       .finally(() => {
         if (!active) return;
+        clearTimeout(timeout);
         setLoadingColegios(false);
       });
 
     return () => {
       active = false;
+      clearTimeout(timeout);
     };
-  }, [region]);
+  }, [region, retryColegiosTick]);
 
   useEffect(() => {
     if (!colegioId || colegioId === 'none') return;
@@ -586,9 +604,9 @@ export default function Settings({ onNavigate }) {
                   onChange={(e) => handleColegioChange(e.target.value)}
                   disabled={loadingColegios}
                   className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all appearance-none cursor-pointer disabled:cursor-wait"
-                  style={{ background: '#f8faff', border: '1.5px solid rgba(12,31,61,0.1)', color: '#0c1f3d' }}
+                  style={{ background: '#f8faff', border: `1.5px solid ${errorColegios ? 'rgba(239,68,68,0.35)' : 'rgba(12,31,61,0.1)'}`, color: '#0c1f3d' }}
                 >
-                  <option value="">{loadingColegios ? 'Cargando colegios...' : 'Selecciona tu colegio (opcional)'}</option>
+                  <option value="">{loadingColegios ? 'Buscando colegios...' : 'Selecciona tu colegio (opcional)'}</option>
                   <option value="none">No tengo colegio / Independiente</option>
                   {colegios.map((colegio) => (
                     <option key={colegio.id} value={String(colegio.id)}>
@@ -597,6 +615,26 @@ export default function Settings({ onNavigate }) {
                     </option>
                   ))}
                 </select>
+                {errorColegios && (
+                  <div className="flex items-center justify-between mt-1.5 px-2">
+                    <p className="text-xs" style={{ color: '#991b1b' }}>
+                      No se pudo cargar la lista de colegios.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setRetryColegiosTick(t => t + 1)}
+                      className="text-xs font-semibold px-2 py-1 rounded-lg"
+                      style={{ background: 'rgba(239,68,68,0.08)', color: '#dc2626' }}
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                )}
+                {!loadingColegios && !errorColegios && region && colegios.length === 0 && (
+                  <p className="text-xs mt-1 px-2" style={{ color: 'rgba(12,31,61,0.4)' }}>
+                    No hay colegios registrados para esta región. Puedes escribir tu colegio manualmente.
+                  </p>
+                )}
               </div>
             )}
 

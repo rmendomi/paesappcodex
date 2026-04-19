@@ -94,6 +94,8 @@ export default function App() {
   useEffect(() => {
     const hash = window.location.hash.slice(1);
     if (hash && studentPages[hash]) pendingHash.current = hash;
+    // Limpiar hash de proyecciones para que no quede en URL sin contexto
+    if (hash === 'proyecciones') history.replaceState(null, '', window.location.pathname);
   }, []);
 
   // Si hay sesión activa al cargar: ir a onboarding si es primer acceso, si no al dashboard
@@ -215,22 +217,29 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {user?.picture ? (
-              <img
-                src={user.picture}
-                alt={user.name}
-                className="w-7 h-7 rounded-full object-cover"
-                style={{ border: '1.5px solid rgba(59,130,246,0.25)' }}
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold"
-                style={{ background: 'rgba(59,130,246,0.15)', color: '#1d4ed8', border: '1.5px solid rgba(59,130,246,0.25)' }}
-              >
-                {initials}
-              </div>
-            )}
+            <button
+              onClick={() => navigate('settings')}
+              aria-label="Mi perfil"
+              title="Mi perfil"
+              className="rounded-full transition-opacity hover:opacity-75 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+            >
+              {user?.picture ? (
+                <img
+                  src={user.picture}
+                  alt={user.name}
+                  className="w-7 h-7 rounded-full object-cover"
+                  style={{ border: '1.5px solid rgba(59,130,246,0.25)' }}
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold"
+                  style={{ background: 'rgba(59,130,246,0.15)', color: '#1d4ed8', border: '1.5px solid rgba(59,130,246,0.25)' }}
+                >
+                  {initials}
+                </div>
+              )}
+            </button>
           </div>
         </div>
 

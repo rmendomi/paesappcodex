@@ -76,16 +76,18 @@ export function AuthProvider({ children }) {
       if (cached.planner) setPlanner(cached.planner);
     }
 
-    // 2. Fetch datos frescos desde Supabase
+    // 2. Fetch datos frescos desde Supabase — en paralelo para reducir latencia
     try {
-      const profile = await api.getUserProfile(email);
+      const [profile, data] = await Promise.all([
+        api.getUserProfile(email),
+        api.getUserData(email),
+      ]);
       if (!profile) {
         await supabase.auth.signOut();
         return;
       }
       setUser(profile);
 
-      const data = await api.getUserData(email);
       const freshSessions = data.sessions || [];
       setSessions(freshSessions);
 

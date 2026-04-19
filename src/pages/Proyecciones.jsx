@@ -87,7 +87,7 @@ function GrowthBar({ value, max, color }) {
 }
 
 export default function Proyecciones({ onNavigate }) {
-  const { user, progressStats = {}, sessions = [] } = useAuth();
+  const { user, progressStats = {}, sessions = [], isAdmin } = useAuth();
   const targets = user?.targets || {};
 
   // ── Cálculos de proyección del estudiante ──────────────────────────
@@ -238,9 +238,9 @@ export default function Proyecciones({ onNavigate }) {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════
-          SECCIÓN 2: PROYECCIÓN DE ÉXITO DE LA APP
+          SECCIÓN 2: PROYECCIÓN DE ÉXITO DE LA APP — solo admins
       ══════════════════════════════════════════════════════════════ */}
-      <section className="space-y-5 fade-up delay-3">
+      {isAdmin && <section className="space-y-5 fade-up delay-3">
         <div className="flex items-center gap-2">
           <Rocket size={18} style={{ color: '#1d4ed8' }} />
           <h2 className="font-display text-xl font-semibold" style={{ color: '#0c1f3d' }}>
@@ -400,7 +400,7 @@ export default function Proyecciones({ onNavigate }) {
             </button>
           )}
         </div>
-      </section>
+      </section>}
     </div>
   );
 }

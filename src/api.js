@@ -1,6 +1,7 @@
-﻿// â”€â”€ Cliente Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+﻿// ── Cliente Supabase ────────────────────────────────────────────────────────
 import { supabase } from './lib/supabase';
 import { createDiagnosticSessions } from './lib/progress';
+import { questionsBySkill } from './data/catalogSource';
 
 const DEFAULT_TARGETS = { lectora: 700, m1: 700, m2: 680, historia: 690, ciencias: 710 };
 
@@ -105,7 +106,7 @@ async function callGASForQuestions(params) {
   const url = `${gasUrl}?action=generateQuestion&examId=${encodeURIComponent(params.examId)}&skillId=${encodeURIComponent(params.skillId || '')}&count=${encodeURIComponent(params.count || 5)}&userEmail=${encodeURIComponent(params.userEmail || '')}`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  const timer = setTimeout(() => controller.abort(), 15_000);
 
   try {
     const resp = await fetch(url, { signal: controller.signal });
@@ -114,12 +115,26 @@ async function callGASForQuestions(params) {
     return data;
   } catch (e) {
     if (e.name === 'AbortError') {
-      throw new Error('Tiempo de espera agotado (30s). Verifica tu conexión e intenta de nuevo.');
+      throw new Error('GAS_TIMEOUT');
     }
     throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function getStaticFallbackQuestions(examId, skillId, count) {
+  const examBank = questionsBySkill[examId];
+  if (!examBank) return [];
+  let pool = skillId && examBank[skillId]
+    ? [...examBank[skillId]]
+    : Object.values(examBank).flat();
+  // Mezcla aleatoria simple
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count).map(q => ({ ...q, aiGenerated: false, fromBanco: false, fromStatic: true }));
 }
 
 async function saveToBancoIA(questions, examId, skillId, userEmail) {
@@ -142,38 +157,38 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
 
 // â”€â”€ API principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const EXAM_NAMES = {
-  lectora: 'Comprension Lectora',
-  m1: 'Matematica M1',
-  m2: 'Matematica M2',
+  lectora: 'Comprensión Lectora',
+  m1: 'Matemática M1',
+  m2: 'Matemática M2',
   historia: 'Historia',
   ciencias: 'Ciencias',
 };
 
 const PLAN_TOPICS = {
   lectora: [
-    'Localizar informacion explicita en textos',
-    'Interpretar ideas implicitas y proposito del autor',
-    'Ensayo breve de comprension lectora',
+    'Localizar información explícita en textos',
+    'Interpretar ideas implícitas y propósito del autor',
+    'Ensayo breve de Comprensión Lectora',
   ],
   m1: [
     'Resolver ecuaciones y sistemas lineales',
     'Problemas de proporcionalidad, porcentajes y razones',
-    'Interpretar graficos y tablas en contexto PAES',
+    'Interpretar gráficos y tablas en contexto PAES',
   ],
   m2: [
-    'Funciones exponenciales y logaritmicas',
-    'Trigonometria aplicada y analisis grafico',
-    'Modelacion con funciones y optimizacion',
+    'Funciones exponenciales y logarítmicas',
+    'Trigonometría aplicada y análisis gráfico',
+    'Modelación con funciones y optimización',
   ],
   historia: [
-    'Analisis de fuentes historicas y confiabilidad',
-    'Procesos historicos de Chile y multicausalidad',
-    'Formacion ciudadana e instituciones',
+    'Análisis de fuentes históricas y confiabilidad',
+    'Procesos históricos de Chile y multicausalidad',
+    'Formación ciudadana e instituciones',
   ],
   ciencias: [
-    'Diseno experimental: variables y control',
-    'Interpretacion de datos y graficos cientificos',
-    'Explicacion de fenomenos en biologia, quimica y fisica',
+    'Diseño experimental: variables y control',
+    'Interpretación de datos y gráficos científicos',
+    'Explicación de fenómenos en biología, química y física',
   ],
 };
 
@@ -950,6 +965,7 @@ export const api = {
     let missing = forceAI ? requested : Math.max(0, requested - fromBanco);
     const aiQuestions = [];
 
+    let usedStaticFallback = false;
     while (missing > 0) {
       const chunk = Math.min(gasChunkSize, missing);
       try {
@@ -966,12 +982,37 @@ export const api = {
         await saveToBancoIA(generated, examId, skillId, userEmail);
         missing -= generated.length;
 
-        // Si el proveedor no devolviÃ³ el chunk completo, no insistimos.
+        // Si el proveedor no devolvió el chunk completo, no insistimos.
         if (generated.length < chunk) break;
       } catch (e) {
-        // Si ya tenemos preguntas del banco, devolvemos parcial para no bloquear al usuario.
-        if (fromBanco === 0 && aiQuestions.length === 0) throw e;
+        // Si no hay preguntas de banco ni IA, usar banco estático como fallback
+        if (fromBanco === 0 && aiQuestions.length === 0) {
+          const staticFallback = getStaticFallbackQuestions(examId, skillId, requested);
+          if (staticFallback.length > 0) {
+            aiQuestions.push(...staticFallback);
+            usedStaticFallback = true;
+            missing = 0;
+            break;
+          }
+          // Si tampoco hay estáticas, lanzar error original (sin el mensaje de timeout)
+          const msg = e.message === 'GAS_TIMEOUT'
+            ? 'La generación de preguntas tardó demasiado y no hay preguntas disponibles en el banco. Intenta con otra habilidad.'
+            : e.message;
+          throw new Error(msg);
+        }
         break;
+      }
+    }
+
+    // Si aún faltan preguntas, completar con banco estático sin error
+    if (missing > 0 && !usedStaticFallback) {
+      const needed = requested - fromBanco - aiQuestions.length;
+      if (needed > 0) {
+        const staticComplement = getStaticFallbackQuestions(examId, skillId, needed);
+        if (staticComplement.length > 0) {
+          aiQuestions.push(...staticComplement);
+          usedStaticFallback = true;
+        }
       }
     }
 
@@ -983,13 +1024,14 @@ export const api = {
     }
 
     return {
-      ok:        true,
-      questions: allQuestions,
-      fromBanco: fromBanco,
-      fromAI:    aiQuestions.length,
+      ok:              true,
+      questions:       allQuestions,
+      fromBanco:       fromBanco,
+      fromAI:          aiQuestions.length,
       requested,
-      usedFallbackAI: !forceAI && fromBanco < requested && aiQuestions.length > 0,
-      count:     allQuestions.length,
+      usedFallbackAI:  !forceAI && fromBanco < requested && aiQuestions.length > 0,
+      usedStaticFallback,
+      count:           allQuestions.length,
     };
   },
 };

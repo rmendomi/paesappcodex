@@ -189,7 +189,7 @@ export default function Dashboard({ onNavigate }) {
             <h2 className="font-display text-xl font-semibold text-white">¿Practicamos?</h2>
             <button
               onClick={() => onNavigate('universities')}
-              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
               style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}
             >
               🎓 Universidades

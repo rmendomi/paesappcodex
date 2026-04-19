@@ -82,7 +82,9 @@ export default function Exams({ onNavigate }) {
         return;
       }
 
-      if (questions.length < count) {
+      if (result.usedStaticFallback) {
+        setErrorMsg(`Usando banco local (IA no disponible). ${questions.length} preguntas cargadas.`);
+      } else if (questions.length < count) {
         setErrorMsg(`Se cargaron ${questions.length} de ${count} preguntas solicitadas.`);
       }
 
@@ -135,7 +137,8 @@ export default function Exams({ onNavigate }) {
           style={{ background: 'rgba(12,31,61,0.6)', backdropFilter: 'blur(6px)' }}>
           <div className="w-14 h-14 rounded-full border-4 border-white/20 border-t-blue-400 animate-spin" />
           <p className="font-semibold text-white text-lg">Cargando preguntas...</p>
-          <p className="text-white/50 text-sm">Buscando no vistas y completando con IA si falta</p>
+          <p className="text-white/50 text-sm">Buscando en tu banco personal · generando con IA si falta</p>
+          <p className="text-white/30 text-xs">Si la IA tarda, se usarán preguntas del banco local</p>
         </div>
       )}
       <div className="fade-up delay-1">

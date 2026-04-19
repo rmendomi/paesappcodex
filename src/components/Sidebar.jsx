@@ -39,7 +39,10 @@ export default function Sidebar({ current, onNavigate, onLogout, isOpen, onClose
   const [collapsed, setCollapsed] = useState({});
 
   const initials    = getInitials(user?.name);
-  const displayName = user?.name || 'Estudiante';
+  const displayName = (user?.name || 'Estudiante')
+    .split(' ')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
   const grade       = user?.gradeLevel || '4° Medio';
   const target      = user?.targetScore || 700;
 
