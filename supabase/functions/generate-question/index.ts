@@ -8,7 +8,7 @@ const CORS = {
 const EXAM_CONTEXT: Record<string, { name: string; instructions: string; skills: Record<string, string> }> = {
   lectora: {
     name: 'Comprensión Lectora PAES',
-    instructions: 'Genera preguntas de comprensión lectora estilo PAES chilena. Incluye un texto de lectura (150-250 palabras, informativo o literario) seguido de la pregunta. El texto debe ser coherente y de nivel 4° medio.',
+    instructions: 'Genera preguntas de comprensión lectora estilo PAES chilena. Incluye un texto breve (60-90 palabras, informativo o literario) seguido de la pregunta. El texto debe ser coherente y de nivel 4° medio.',
     skills: {
       localizar:   'Localizar y recuperar información explícita del texto',
       interpretar: 'Interpretar e integrar información implícita del texto',
@@ -126,7 +126,7 @@ serve(async (req) => {
       });
     }
 
-    const safeCount = Math.min(Math.max(Number(count) || 5, 1), 10);
+    const safeCount = Math.min(Math.max(Number(count) || 1, 1), 2);
     const apiKey = Deno.env.get('CLAUDE_API_KEY');
     if (!apiKey) throw new Error('CLAUDE_API_KEY no configurada');
 
@@ -141,7 +141,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
+        max_tokens: 2048,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
