@@ -227,6 +227,7 @@ serve(async (req) => {
           explanation: String(q.explanation || '').trim(),
           aiGenerated: true,
           provider:    'claude',
+          version:     2,
         };
       })
       .filter(q => q.text.length > 0 && q.options.length >= 4);
