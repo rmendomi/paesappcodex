@@ -173,14 +173,13 @@ serve(async (req) => {
       });
     }
 
-    const safeCount = Math.min(Math.max(Number(count) || 1, 1), 2);
+    const safeCount = Math.min(Math.max(Number(count) || 1, 1), 3);
     const apiKey = Deno.env.get('CLAUDE_API_KEY');
     if (!apiKey) throw new Error('CLAUDE_API_KEY no configurada');
 
     const prompt = buildPrompt(examId, skillId || null, safeCount);
 
-    // Lectora necesita más tokens por los textos largos
-    const maxTokens = examId === 'lectora' ? 3000 : 2048;
+    const maxTokens = examId === 'lectora' ? 4500 : 3000;
 
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

@@ -179,9 +179,10 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
       generado_por: userEmail || 'unknown',
       version:      q.version || 2,
     }));
-    await supabase.from('banco_ia').insert(rows);
-  } catch (_) {
-    // No crÃ­tico â€” no interrumpir el flujo
+    const { error } = await supabase.from('banco_ia').insert(rows);
+    if (error) console.warn('[saveToBancoIA] insert error:', error.code, error.message);
+  } catch (err) {
+    console.warn('[saveToBancoIA] exception:', err.message);
   }
 }
 
@@ -989,8 +990,8 @@ export const api = {
         await saveToBancoIA(generated, examId, skillId, userEmail);
         missing -= generated.length;
 
-        // Si el proveedor no devolvió el chunk completo, no insistimos.
-        if (generated.length < chunk) break;
+        // Parar solo si no se generó nada (evitar loop infinito).
+        if (generated.length === 0) break;
       } catch (e) {
         // Si no hay preguntas de banco ni IA, usar banco estático como fallback
         if (fromBanco === 0 && aiQuestions.length === 0) {
