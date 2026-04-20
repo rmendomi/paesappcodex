@@ -205,16 +205,30 @@ serve(async (req) => {
 
     const ts = String(Date.now());
     const questions = parsed
-      .map((q, i) => ({
-        id:          `ai_${examId}_${skillId || 'mix'}_${ts}_${i}`,
-        skill:       (q.skill as string) || skillId || 'mixed',
-        text:        String(q.text || '').trim(),
-        options:     Array.isArray(q.options) ? (q.options as unknown[]).map(String) : [],
-        correct:     typeof q.correct === 'number' ? q.correct : 0,
-        explanation: String(q.explanation || '').trim(),
-        aiGenerated: true,
-        provider:    'claude',
-      }))
+      .map((q, i) => {
+        const rawOptions: string[] = Array.isArray(q.options) ? (q.options as unknown[]).map(String) : [];
+        const correctIdx = typeof q.correct === 'number' ? q.correct : 0;
+        const correctText = rawOptions[correctIdx] ?? '';
+
+        // Fisher-Yates shuffle para distribuir la clave en posición aleatoria
+        const shuffled = [...rawOptions];
+        for (let j = shuffled.length - 1; j > 0; j--) {
+          const k = Math.floor(Math.random() * (j + 1));
+          [shuffled[j], shuffled[k]] = [shuffled[k], shuffled[j]];
+        }
+        const newCorrect = shuffled.indexOf(correctText);
+
+        return {
+          id:          `ai_${examId}_${skillId || 'mix'}_${ts}_${i}`,
+          skill:       (q.skill as string) || skillId || 'mixed',
+          text:        String(q.text || '').trim(),
+          options:     shuffled,
+          correct:     newCorrect >= 0 ? newCorrect : 0,
+          explanation: String(q.explanation || '').trim(),
+          aiGenerated: true,
+          provider:    'claude',
+        };
+      })
       .filter(q => q.text.length > 0 && q.options.length >= 4);
 
     if (questions.length === 0) {
