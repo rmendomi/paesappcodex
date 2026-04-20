@@ -177,7 +177,6 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
       correct:      q.correct,
       explanation:  q.explanation,
       generado_por: userEmail || 'unknown',
-      version:      q.version || 2,
     }));
     const { error } = await supabase.from('banco_ia').insert(rows);
     if (error) console.warn('[saveToBancoIA] insert error:', error.code, error.message);
@@ -959,7 +958,7 @@ export const api = {
     if (!ctx) throw new Error('examId no reconocido: ' + examId);
 
     const requested = Math.max(1, Math.min(Number(count) || 5, 120));
-    const gasChunkSize = 10;
+    const gasChunkSize = 3; // Edge Function cap: máx 3 por llamada
 
     // Estrategia inteligente:
     // 1) usar primero preguntas no vistas del banco
