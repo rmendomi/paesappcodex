@@ -28,7 +28,7 @@ export default function Exams({ onNavigate }) {
       const result = await api.generateQuestions({
         examId,
         skillId,
-        count: 10,
+        count: 3,
         userEmail: user?.email,
         forceAI: true,
       });
@@ -37,6 +37,9 @@ export default function Exams({ onNavigate }) {
       if (skillId) {
         const skill = skillsConfig[examId].find(s => s.id === skillId);
         skillName = `${exam.name} · ${skill.name} ✨ IA`;
+      }
+      if (result.usedStaticFallback) {
+        setErrorMsg('IA no disponible ahora. Usando banco local — las preguntas son válidas pero no son de IA.');
       }
       onNavigate('practice', { examId, questions: result.questions, mode: 'ai_practice', skillId, skillName });
     } catch (err) {

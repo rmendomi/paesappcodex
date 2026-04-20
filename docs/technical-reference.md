@@ -181,14 +181,19 @@ usuarios (PK: email)
 └── onboarding_completado  BOOLEAN
 
 sesiones (PK: id)
-├── id             TEXT
-├── user_email     TEXT        → usuarios.email
-├── exam_id        TEXT        ← lectora | m1 | m2 | historia | ciencias
-├── mode           TEXT        ← practice | ai_practice | exam | skill | diagnostic
-├── correct        INTEGER
-├── total          INTEGER
-├── score          INTEGER     ← escala 100–1000
-└── date           TIMESTAMP
+├── id              TEXT
+├── user_email      TEXT        → usuarios.email
+├── exam_id         TEXT        ← lectora | m1 | m2 | historia | ciencias
+├── mode            TEXT        ← practice | ai_practice | exam | skill | diagnostic
+├── correct         INTEGER
+├── total           INTEGER
+├── score           INTEGER     ← escala 100–1000
+├── skill_id        TEXT        ← habilidad practicada (modo skill)
+├── question_ids    JSONB[]     ← IDs de preguntas en la sesión
+├── wrong_ids       JSONB[]     ← IDs de preguntas respondidas mal
+├── security_events JSONB[]     ← eventos de integridad académica
+├── security_warnings INTEGER   ← contador de advertencias
+└── date            TIMESTAMP
 
 streak (PK: user_email)
 ├── user_email     TEXT        → usuarios.email
@@ -492,6 +497,7 @@ El progreso de checkboxes y el contenido del plan se guardan en Supabase (`plann
 Archivo `.env` en la raíz del proyecto (no incluido en git):
 
 ```env
+VITE_GOOGLE_CLIENT_ID=...           # Google OAuth Client ID
 VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 VITE_GAS_URL=https://script.google.com/macros/s/.../exec
@@ -512,6 +518,7 @@ VITE_GAS_URL=https://script.google.com/macros/s/.../exec
 | `supabase_planner_mejoras.sql` | Agrega columna `plan_content` a `planner` |
 | `supabase_reset_completo.sql` | **DESTRUCTIVO** — borra y recrea todo |
 | `supabase_seed_universidades.sql` | Seed de universidades y carreras |
+| `supabase_security_migration.sql` | Agrega columnas de integridad académica a `sesiones` |
 
 ### Ejecutar en Supabase
 
@@ -549,14 +556,14 @@ npm run preview
 ### Docker
 
 ```bash
-# Build imagen
-docker build -t paes-app .
+# Desarrollo (Vite con hot reload en :5173)
+docker compose --profile dev up --build
 
-# Levantar con Docker Compose
-docker-compose up -d
+# Producción (Nginx en :8080)
+docker compose --profile prod up --build -d
 ```
 
-El `Dockerfile` y `docker-compose.yml` están en la raíz del proyecto.
+El `Dockerfile` es multi-stage (base → dev → build → prod). El `docker-compose.yml` define dos perfiles: `dev` y `prod`. Ver [DOCKER.md](../DOCKER.md) para detalles.
 
 ### Tamaños de bundle (build actual)
 

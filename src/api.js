@@ -99,30 +99,57 @@ function parseAIResponse(raw) {
   throw new Error('La IA no devolviÃ³ JSON vÃ¡lido. Intenta nuevamente.');
 }
 
-async function callEdgeFunctionForQuestions(params) {
+async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries = 1 } = {}) {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const anonKey    = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl) throw new Error('VITE_SUPABASE_URL no configurada en .env');
 
-  const url = `${supabaseUrl}/functions/v1/generate-question`;
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${anonKey}`,
-    },
-    body: JSON.stringify({
-      examId:    params.examId,
-      skillId:   params.skillId   || null,
-      count:     params.count     || 5,
-      userEmail: params.userEmail || '',
-    }),
+  const url  = `${supabaseUrl}/functions/v1/generate-question`;
+  const body = JSON.stringify({
+    examId:    params.examId,
+    skillId:   params.skillId   || null,
+    count:     params.count     || 5,
+    userEmail: params.userEmail || '',
   });
 
-  const data = await resp.json();
-  if (data.error) throw new Error(data.error);
-  return data;
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    // Warm-up delay: si es un reintento por cold-start, esperar 1.5s
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${anonKey}`,
+        },
+        body,
+        signal: controller.signal,
+      });
+
+      const data = await resp.json();
+      if (data.error) {
+        lastError = new Error(data.error);
+        // 500 en intento 0 → probablemente cold start, reintentar
+        if (resp.status === 500 && attempt < retries) continue;
+        throw lastError;
+      }
+      return data;
+    } catch (err) {
+      lastError = err.name === 'AbortError'
+        ? new Error(`Tiempo de espera agotado (${timeoutMs / 1000}s). Revisa tu conexión.`)
+        : err;
+      if (attempt < retries) continue;
+      throw lastError;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError;
 }
 
 function getStaticFallbackQuestions(examId, skillId, count) {
@@ -150,11 +177,11 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
       correct:      q.correct,
       explanation:  q.explanation,
       generado_por: userEmail || 'unknown',
-      version:      q.version || 2,
     }));
-    await supabase.from('banco_ia').insert(rows);
-  } catch (_) {
-    // No crÃ­tico â€” no interrumpir el flujo
+    const { error } = await supabase.from('banco_ia').insert(rows);
+    if (error) console.warn('[saveToBancoIA] insert error:', error.code, error.message);
+  } catch (err) {
+    console.warn('[saveToBancoIA] exception:', err.message);
   }
 }
 

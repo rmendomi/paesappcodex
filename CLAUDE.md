@@ -33,6 +33,7 @@ src/
     Landing.jsx        # Página pública inicial
     Login.jsx          # Login email/password + Google OAuth
     Register.jsx       # Registro con email verification
+    Onboarding.jsx     # Primer acceso: diagnóstico 10q + situación + metas + objetivos
     Dashboard.jsx      # Panel principal del estudiante
     Exams.jsx          # Selección de examen + configuración de práctica
     Practice.jsx       # Motor de práctica (preguntas una a una)
@@ -44,6 +45,10 @@ src/
     Settings.jsx       # Perfil y configuración de metas
     Calculator.jsx     # Calculadora de puntaje ponderado
     Universities.jsx   # Calculadora de admisión universitaria
+    AdminDashboard.jsx # Panel de administración (home)
+    AdminUsuarios.jsx  # Gestión de usuarios
+    AdminPreguntas.jsx # CRUD banco de preguntas IA
+    AdminSesiones.jsx  # Analytics de sesiones
 gas/
   Code.gs              # Backend GAS: proxy AI, fallback Google Sheets
 prisma/
@@ -52,12 +57,12 @@ prisma/
 
 ## Base de Datos Supabase (PRODUCCIÓN)
 Tablas activas:
-- `usuarios` — PK: `email`. Campos: name, picture, school, grade_level, target_score, targets(jsonb), anio_nacimiento, situacion, region, colegio_id
-- `sesiones` — PK: `id`. FK: user_email → usuarios. Campos: exam_id, mode, correct, total, score, date
+- `usuarios` — PK: `email`. Campos: name, picture, school, grade_level, target_score, targets(jsonb), anio_nacimiento, situacion, region, colegio_id, objetivo_principal(jsonb), objetivos_secundarios(jsonb[]), diagnostico_completado, onboarding_completado
+- `sesiones` — PK: `id`. FK: user_email → usuarios. Campos: exam_id, mode, correct, total, score, skill_id, question_ids(jsonb[]), wrong_ids(jsonb[]), security_events(jsonb[]), security_warnings(int), date
 - `streak` — PK: `user_email`. Campos: current, best, total_days, last_activity, history(jsonb)
-- `planner` — PK: `user_email`. Campos: week_id, plan_id, progress(jsonb), updated_at
+- `planner` — PK: `user_email`. Campos: week_id, plan_id, progress(jsonb), plan_content(jsonb), updated_at
 - `banco_ia` — PK: `id`. Preguntas generadas por IA. Campos: exam_id, skill_id, text, options(jsonb), correct(int), explanation, generado_por, veces_usada
-- `preguntas_vistas` — UK: (user_email, question_id). Tracking de preguntas ya vistas por usuario
+- `preguntas_vistas` — UK: (user_email, question_id). Campos: exam_id, skill_id, fue_correcta(bool)
 - `colegios` — Catálogo de colegios chilenos (id, nombre, comuna, tipo, region)
 - `leaderboard` — RPC: `get_public_leaderboard(p_limit)` con fallback manual
 
@@ -96,9 +101,10 @@ El resto usa `<Sidebar>` + `<main className="lg:ml-64">`.
 
 ## Variables de Entorno (.env)
 ```
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
-VITE_GAS_URL=          # URL del Web App de Google Apps Script
+VITE_GOOGLE_CLIENT_ID=   # Google OAuth Client ID (console.cloud.google.com)
+VITE_SUPABASE_URL=       # URL del proyecto Supabase
+VITE_SUPABASE_ANON_KEY=  # Anon key pública de Supabase
+VITE_GAS_URL=            # URL del Web App de Google Apps Script (proxy IA)
 ```
 
 ## Convenciones de Código
@@ -123,8 +129,22 @@ npm run preview  # Preview del build
 - Proveedores soportados: `'claude'` | `'gemini'` (variable `AI_PROVIDER`)
 - Spreadsheet de respaldo: `SS_ID` en Code.gs
 
+## Flujo de Onboarding
+Cuando `onboarding_completado = false` en la sesión, App.jsx redirige a `Onboarding.jsx`.
+4 pasos: diagnóstico (10 preguntas), situación académica, metas de puntaje, objetivos de carrera.
+Al completar → `api.completeOnboarding(email)` → navega a `dashboard`.
+
+## Admin
+Las páginas Admin (`AdminDashboard`, `AdminUsuarios`, `AdminPreguntas`, `AdminSesiones`) se acceden
+solo si el usuario tiene rol admin. No están documentadas en la guía de usuario. Acceso vía view `admin_*`.
+
+## Supabase Edge Function (alternativa a GAS)
+`supabase/functions/generate-question/index.ts` — Deno. Endpoint POST alternativo al GAS proxy.
+Soporta la misma API. Usar cuando GAS tiene latencia alta o cuotas agotadas.
+
 ## Notas Importantes
 - `prisma/schema.prisma` es referencia de modelos pero la app usa Supabase, NO Prisma en prod
 - El `noopLock` en `supabase.js` es intencional: evita conflicto con extensiones browser (MetaMask)
 - Leaderboard tiene fallback manual si RPC `get_public_leaderboard` no existe (compatibilidad)
 - XP score formula: `sessions * 100 + avgScore + streak * 10`
+- `security_events`/`security_warnings` en `sesiones` son para integridad académica (copy-paste, tab switching)
