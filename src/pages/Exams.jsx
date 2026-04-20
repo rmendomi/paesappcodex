@@ -38,6 +38,9 @@ export default function Exams({ onNavigate }) {
         const skill = skillsConfig[examId].find(s => s.id === skillId);
         skillName = `${exam.name} · ${skill.name} ✨ IA`;
       }
+      if (result.usedStaticFallback) {
+        setErrorMsg('IA no disponible ahora. Usando banco local — las preguntas son válidas pero no son de IA.');
+      }
       onNavigate('practice', { examId, questions: result.questions, mode: 'ai_practice', skillId, skillName });
     } catch (err) {
       setErrorMsg('Error generando preguntas con IA: ' + err.message);

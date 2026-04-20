@@ -19,6 +19,7 @@ graph TB
     subgraph Supabase
         SBAUTH[Supabase Auth<br/>email + Google OAuth]
         DB[(PostgreSQL<br/>usuarios/sesiones<br/>streak/planner<br/>banco_ia)]
+        EDGE[Edge Function<br/>generate-question<br/>alternativa a GAS]
     end
 
     subgraph Google
@@ -34,9 +35,10 @@ graph TB
     LIB --> DB
     API --> CAT
     API --> GAS
+    API -.->|alternativa| EDGE
     GAS --> CLAUDE
     GAS --> GEMINI
-    GAS --> DB
+    EDGE --> CLAUDE
 ```
 
 ---
@@ -48,8 +50,10 @@ stateDiagram-v2
     [*] --> landing
     landing --> login
     landing --> register
-    login --> dashboard : auth ok
+    login --> onboarding : primer acceso
+    login --> dashboard : onboarding completado
     register --> login
+    onboarding --> dashboard : 4 pasos completados
     dashboard --> exams
     dashboard --> progress
     dashboard --> proyecciones
@@ -58,10 +62,14 @@ stateDiagram-v2
     dashboard --> settings
     dashboard --> calculator
     dashboard --> universities
+    dashboard --> admin_dashboard : rol admin
     exams --> practice : configura sesión
     practice --> results : termina práctica
     results --> exams
     results --> dashboard
+    admin_dashboard --> admin_usuarios
+    admin_dashboard --> admin_preguntas
+    admin_dashboard --> admin_sesiones
 ```
 
 ---
@@ -78,10 +86,14 @@ erDiagram
         text grade_level
         int target_score
         jsonb targets
-        text anio_nacimiento
+        int anio_nacimiento
         text situacion
         text region
-        text colegio_id
+        int colegio_id
+        jsonb objetivo_principal
+        jsonb[] objetivos_secundarios
+        bool diagnostico_completado
+        bool onboarding_completado
         timestamptz created_at
         timestamptz last_login
     }
@@ -93,6 +105,11 @@ erDiagram
         int correct
         int total
         int score
+        text skill_id
+        jsonb[] question_ids
+        jsonb[] wrong_ids
+        jsonb[] security_events
+        int security_warnings
         timestamptz date
     }
     streak {
@@ -100,7 +117,7 @@ erDiagram
         int current
         int best
         int total_days
-        text last_activity
+        date last_activity
         jsonb history
     }
     planner {
@@ -108,6 +125,7 @@ erDiagram
         text week_id
         text plan_id
         jsonb progress
+        jsonb plan_content
         timestamptz updated_at
     }
     banco_ia {
@@ -120,6 +138,7 @@ erDiagram
         text explanation
         text generado_por
         int veces_usada
+        timestamptz fecha
     }
     preguntas_vistas {
         text user_email FK
@@ -129,7 +148,7 @@ erDiagram
         bool fue_correcta
     }
     colegios {
-        text id PK
+        int id PK
         text nombre
         text comuna
         text tipo
@@ -140,6 +159,7 @@ erDiagram
     usuarios ||--o| streak : "user_email"
     usuarios ||--o| planner : "user_email"
     usuarios ||--o{ preguntas_vistas : "user_email"
+    usuarios }o--o| colegios : "colegio_id"
     banco_ia ||--o{ preguntas_vistas : "question_id"
 ```
 
@@ -180,7 +200,7 @@ graph LR
     AC -->|expone| U[user<br/>email, name, picture<br/>school, targets]
     AC -->|expone| S[sessions[]<br/>historial de práctica]
     AC -->|expone| ST[streak<br/>current, best, totalDays]
-    AC -->|expone| PL[planner<br/>weekId, planId, progress]
+    AC -->|expone| PL[planner<br/>weekId, planId, progress, planContent]
     AC -->|expone| LB[leaderboard[]]
     AC -->|computed| PS[progressStats<br/>por examen: attempted/correct/trend]
     AC -->|computed| RA[recentActivity<br/>últimas 5 sesiones]
@@ -204,6 +224,7 @@ graph TD
     PUB --> LAN[Landing.jsx]
     PUB --> LOG[Login.jsx]
     PUB --> REG[Register.jsx]
+    PUB --> ONB[Onboarding.jsx]
 
     APP --> FLOW[Flujo Práctica<br/>full-screen]
     FLOW --> PRA[Practice.jsx]
@@ -220,4 +241,10 @@ graph TD
     PORT --> SET[Settings.jsx]
     PORT --> CA[Calculator.jsx]
     PORT --> UN[Universities.jsx]
+
+    APP --> ADM[Panel Admin<br/>con Sidebar]
+    ADM --> ADMD[AdminDashboard.jsx]
+    ADM --> ADMU[AdminUsuarios.jsx]
+    ADM --> ADMP[AdminPreguntas.jsx]
+    ADM --> ADMS[AdminSesiones.jsx]
 ```
