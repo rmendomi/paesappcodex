@@ -28,7 +28,7 @@ export default function Exams({ onNavigate }) {
       const result = await api.generateQuestions({
         examId,
         skillId,
-        count: 3,
+        count: 10,
         userEmail: user?.email,
         forceAI: true,
       });
