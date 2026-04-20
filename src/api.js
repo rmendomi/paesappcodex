@@ -150,6 +150,7 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
       correct:      q.correct,
       explanation:  q.explanation,
       generado_por: userEmail || 'unknown',
+      version:      q.version || 2,
     }));
     await supabase.from('banco_ia').insert(rows);
   } catch (_) {
