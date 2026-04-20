@@ -218,7 +218,7 @@ serve(async (req) => {
         const newCorrect = shuffled.indexOf(correctText);
 
         return {
-          id:          `ai_${examId}_${skillId || 'mix'}_${ts}_${i}`,
+          id:          `ai_${examId}_${skillId || 'mix'}_${ts}_${crypto.randomUUID().slice(0,8)}_${i}`,
           skill:       (q.skill as string) || skillId || 'mixed',
           text:        String(q.text || '').trim(),
           options:     shuffled,
