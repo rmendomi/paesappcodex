@@ -19,7 +19,8 @@ export default function Login({ onLogin, onBack, onRegister }) {
     setLoading(true);
     try {
       await login({ email: email.trim().toLowerCase(), password });
-      onLogin();
+      // No navegar aquí: App.jsx lo hace automáticamente cuando
+      // el perfil ya está cargado (authLoading→false + user→set)
     } catch (err) {
       const msg = (err.message || '').toLowerCase();
       if (msg.includes('correo o contraseña incorrectos') || msg.includes('correo o contrasena incorrectos') || msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {

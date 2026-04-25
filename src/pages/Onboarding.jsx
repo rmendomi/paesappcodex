@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CheckCircle, ChevronRight, ChevronLeft, Search, Sparkles, Brain, Target, BookOpen, Loader2, AlertCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
-// ── Preguntas diagnóstico (2 por examen = 10 total) ────────────────────────
-// Selección representativa del banco estático. NO son preguntas de práctica.
-const DIAGNOSTIC_QUESTIONS = [
+// ── Fallback estático si banco_ia no tiene preguntas (2 por examen = 10) ───
+const FALLBACK_QUESTIONS = [
   // LECTORA
   {
     id: 'd_lect_1', examId: 'lectora',
@@ -78,6 +77,17 @@ const DIAGNOSTIC_QUESTIONS = [
   },
 ];
 
+// ── Regiones de Chile ────────────────────────────────────────────────────────
+const REGIONES = [
+  'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
+  'Valparaíso', 'Metropolitana', "O'Higgins", 'Maule', 'Ñuble',
+  'Biobío', 'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes',
+];
+
+// ── Preguntas por examen en el diagnóstico (ajusta aquí) ────────────────────
+const DIAGNOSTIC_PER_EXAM = 2; // banco_ia entrega este número por cada una de las 5 pruebas
+
+
 const EXAM_NAMES = {
   lectora:  'Comprensión Lectora',
   m1:       'Matemática M1',
@@ -98,15 +108,26 @@ function estimarPuntaje(correct, total) {
 const STEPS = ['bienvenida', 'diagnostico', 'objetivos', 'resumen'];
 
 export default function Onboarding({ onComplete }) {
-  const { user, saveDiagnostico, saveObjetivos, completeOnboarding, progressStats } = useAuth();
+  const { user, saveDiagnostico, saveObjetivos, completeOnboarding, updateProfile } = useAuth();
 
+  const onboardingStartRef = useRef(Date.now());
   const [step, setStep] = useState('bienvenida');
 
+  // ── Región / colegio (solo egresados) ───────────────────────────────────────
+  const [selectedRegion,   setSelectedRegion]   = useState(user?.region || '');
+  const [colegios,         setColegios]         = useState([]);
+  const [loadingColegios,  setLoadingColegios]  = useState(false);
+  const [selectedColegioId, setSelectedColegioId] = useState(user?.colegioId || '');
+  const [colegioSearch,    setColegioSearch]    = useState('');
+
   // ── Diagnóstico ─────────────────────────────────────────────────────────────
+  const [diagQuestions, setDiagQuestions] = useState([]);  // cargadas desde banco_ia
+  const [loadingDiag,   setLoadingDiag]   = useState(false);
   const [diagAnswers, setDiagAnswers]   = useState({});  // { questionId: selectedIndex }
   const [diagStep, setDiagStep]         = useState(0);   // pregunta actual
   const [diagCompleted, setDiagCompleted] = useState(false);
   const [diagResults, setDiagResults]   = useState(null);
+  const [diagStarted,  setDiagStarted]  = useState(false);
 
   // ── Objetivos ───────────────────────────────────────────────────────────────
   const [universidades,    setUniversidades]    = useState([]);
@@ -128,6 +149,27 @@ export default function Onboarding({ onComplete }) {
   // ── Generación ──────────────────────────────────────────────────────────────
   const [saving,    setSaving]    = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  // Cargar preguntas del diagnóstico desde banco_ia al entrar al paso
+  useEffect(() => {
+    if (step !== 'diagnostico' || diagQuestions.length > 0) return;
+    if (!user?.email) return;
+    setLoadingDiag(true);
+    api.getDiagnosticQuestions(user.email, DIAGNOSTIC_PER_EXAM)
+      .then(qs => setDiagQuestions(qs.length > 0 ? qs : FALLBACK_QUESTIONS))
+      .catch(() => setDiagQuestions(FALLBACK_QUESTIONS))
+      .finally(() => setLoadingDiag(false));
+  }, [step, user?.email]);
+
+  // Cargar colegios cuando el egresado selecciona una región
+  useEffect(() => {
+    if (!selectedRegion) { setColegios([]); setSelectedColegioId(''); return; }
+    setLoadingColegios(true);
+    api.getColegiosByRegion(selectedRegion)
+      .then(setColegios)
+      .catch(() => setColegios([]))
+      .finally(() => setLoadingColegios(false));
+  }, [selectedRegion]);
 
   // Cargar universidades al entrar al paso de objetivos
   useEffect(() => {
@@ -163,26 +205,26 @@ export default function Onboarding({ onComplete }) {
   };
 
   const handleDiagNext = () => {
-    if (diagStep < DIAGNOSTIC_QUESTIONS.length - 1) {
+    if (diagStep < diagQuestions.length - 1) {
       setDiagStep(s => s + 1);
     } else {
-      // Calcular resultados
+      // Calcular resultados por examen
       const byExam = {};
-      DIAGNOSTIC_QUESTIONS.forEach(q => {
+      diagQuestions.forEach(q => {
         if (!byExam[q.examId]) byExam[q.examId] = { correct: 0, total: 0 };
         byExam[q.examId].total += 1;
         if (diagAnswers[q.id] === q.correct) byExam[q.examId].correct += 1;
       });
       const results = {};
       Object.entries(byExam).forEach(([examId, { correct, total }]) => {
-        results[examId] = {
-          correct,
-          total,
-          score_estimado: estimarPuntaje(correct, total),
-        };
+        results[examId] = { correct, total, score_estimado: estimarPuntaje(correct, total) };
       });
       setDiagResults(results);
       setDiagCompleted(true);
+      // Marcar preguntas como vistas en preguntas_vistas
+      if (user?.email) {
+        api.markDiagnosticAsSeen(user.email, diagQuestions, diagAnswers);
+      }
     }
   };
 
@@ -228,6 +270,11 @@ export default function Onboarding({ onComplete }) {
     setSaving(true);
     setSaveError('');
     try {
+      // Guardar región/colegio si es egresado
+      if (user?.situacion === 'egresado' && selectedRegion) {
+        await updateProfile({ region: selectedRegion, colegioId: selectedColegioId || null });
+      }
+
       // Guardar diagnóstico
       if (diagResults) {
         await saveDiagnostico(diagResults);
@@ -249,8 +296,9 @@ export default function Onboarding({ onComplete }) {
       const secFiltrados = secundarios.filter(Boolean);
       await saveObjetivos(principal, secFiltrados);
 
-      // Marcar onboarding completado
-      await completeOnboarding();
+      // Marcar onboarding completado + guardar duración
+      const durationSeconds = Math.round((Date.now() - onboardingStartRef.current) / 1000);
+      await completeOnboarding(durationSeconds);
 
       onComplete();
     } catch (err) {
@@ -260,8 +308,10 @@ export default function Onboarding({ onComplete }) {
     }
   };
 
-  const currentQ = DIAGNOSTIC_QUESTIONS[diagStep];
+  const currentQ = diagQuestions[diagStep];
   const answered  = diagAnswers[currentQ?.id] !== undefined;
+  const isEgresado = user?.situacion === 'egresado';
+  const canStartDiag = !isEgresado || !!selectedRegion;
 
   // ─── RENDER ─────────────────────────────────────────────────────────────────
 
@@ -302,7 +352,7 @@ export default function Onboarding({ onComplete }) {
             </p>
             <div className="grid grid-cols-2 gap-4 mb-8 text-left">
               {[
-                { icon: Brain, title: 'Diagnóstico inicial', desc: '10 preguntas para medir tu nivel actual en cada prueba PAES.' },
+                { icon: Brain, title: 'Diagnóstico inicial', desc: `${DIAGNOSTIC_PER_EXAM * 5} preguntas para medir tu nivel actual en cada prueba PAES.` },
                 { icon: Target, title: 'Tu objetivo académico', desc: 'Elige la carrera y universidad que quieres alcanzar.' },
               ].map(({ icon: Icon, title, desc }) => (
                 <div key={title} className="p-4 rounded-2xl" style={{ background: 'rgba(29,78,216,0.05)', border: '1px solid rgba(29,78,216,0.12)' }}>
@@ -312,9 +362,83 @@ export default function Onboarding({ onComplete }) {
                 </div>
               ))}
             </div>
+            {/* Región y colegio — solo para egresados */}
+            {isEgresado && (
+              <div className="mb-6 p-4 rounded-2xl text-left"
+                style={{ background: 'rgba(29,78,216,0.04)', border: '1.5px solid rgba(29,78,216,0.12)' }}>
+                <p className="text-xs font-semibold mb-3" style={{ color: '#0c1f3d' }}>
+                  Antes de continuar, cuéntanos un poco más
+                </p>
+
+                {/* Región (obligatorio) */}
+                <label className="block text-xs mb-1" style={{ color: 'rgba(12,31,61,0.6)' }}>
+                  Región <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <select
+                  value={selectedRegion}
+                  onChange={e => { setSelectedRegion(e.target.value); setSelectedColegioId(''); setColegioSearch(''); }}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none mb-3"
+                  style={{ background: 'white', border: `1.5px solid ${selectedRegion ? '#1d4ed8' : 'rgba(12,31,61,0.12)'}`, color: '#0c1f3d' }}
+                >
+                  <option value="">Selecciona tu región…</option>
+                  {REGIONES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+
+                {/* Colegio (opcional) */}
+                {selectedRegion && (
+                  <>
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(12,31,61,0.6)' }}>
+                      Colegio donde egresaste <span style={{ color: 'rgba(12,31,61,0.35)' }}>(opcional)</span>
+                    </label>
+                    {loadingColegios ? (
+                      <div className="text-center py-2"><Loader2 size={14} className="animate-spin inline" style={{ color: '#1d4ed8' }} /></div>
+                    ) : (
+                      <>
+                        <div className="relative mb-1">
+                          <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(12,31,61,0.4)' }} />
+                          <input
+                            value={colegioSearch}
+                            onChange={e => setColegioSearch(e.target.value)}
+                            placeholder="Buscar colegio…"
+                            className="w-full pl-8 pr-3 py-2 rounded-xl text-xs outline-none"
+                            style={{ background: 'white', border: '1.5px solid rgba(12,31,61,0.1)', color: '#0c1f3d' }}
+                          />
+                        </div>
+                        {selectedColegioId && (
+                          <p className="text-xs mb-1" style={{ color: '#1d4ed8' }}>
+                            ✓ {colegios.find(c => c.id === selectedColegioId)?.nombre}
+                            <button onClick={() => { setSelectedColegioId(''); setColegioSearch(''); }}
+                              className="ml-2" style={{ color: 'rgba(12,31,61,0.4)' }}>✕</button>
+                          </p>
+                        )}
+                        {!selectedColegioId && colegioSearch && (
+                          <div className="max-h-28 overflow-y-auto rounded-xl border"
+                            style={{ borderColor: 'rgba(12,31,61,0.08)', background: 'white' }}>
+                            {colegios
+                              .filter(c => c.nombre.toLowerCase().includes(colegioSearch.toLowerCase()))
+                              .slice(0, 6)
+                              .map(c => (
+                                <button key={c.id}
+                                  onClick={() => { setSelectedColegioId(c.id); setColegioSearch(''); }}
+                                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors"
+                                  style={{ color: '#0c1f3d' }}>
+                                  {c.nombre}
+                                  <span className="ml-1" style={{ color: 'rgba(12,31,61,0.4)' }}>— {c.comuna}</span>
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             <button
               onClick={() => setStep('diagnostico')}
-              className="w-full py-3.5 rounded-2xl font-semibold text-sm text-white transition-all hover:scale-[1.02]"
+              disabled={!canStartDiag}
+              className="w-full py-3.5 rounded-2xl font-semibold text-sm text-white transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}
             >
               Comenzar diagnóstico <ChevronRight size={14} className="inline ml-1" />
@@ -329,93 +453,155 @@ export default function Onboarding({ onComplete }) {
           </div>
         )}
 
+        {/* ── MODAL DE INICIO DE DIAGNÓSTICO ── */}
+        {step === 'diagnostico' && !diagCompleted && !loadingDiag && currentQ && !diagStarted && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(12,31,61,0.6)', backdropFilter: 'blur(6px)' }}>
+            <div className="w-full max-w-lg rounded-3xl p-8"
+              style={{ background: 'white', boxShadow: '0 30px 80px rgba(12,31,61,0.15)', border: '1px solid rgba(12,31,61,0.06)' }}>
+
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'rgba(29,78,216,0.1)' }}>
+                  <Brain size={22} style={{ color: '#1d4ed8' }} />
+                </div>
+                <div>
+                  <h2 className="font-display text-xl font-semibold" style={{ color: '#0c1f3d' }}>
+                    Diagnóstico inicial
+                  </h2>
+                  <p className="text-xs" style={{ color: 'rgba(12,31,61,0.45)' }}>
+                    {diagQuestions.length} preguntas · 5 exámenes PAES
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl mb-4"
+                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)' }}>
+                <p className="text-sm leading-relaxed" style={{ color: '#92400e' }}>
+                  Recuerda: responder con IA no te ayuda. En la PAES real no tendrás una IA al lado;
+                  si hoy haces trampa, después no sabrás hacerlo solo.{' '}
+                  <strong>Te haces un daño.</strong>
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl mb-6"
+                style={{ background: '#f8faff', border: '1px solid rgba(12,31,61,0.08)' }}>
+                <p className="text-xs leading-relaxed" style={{ color: 'rgba(12,31,61,0.6)' }}>
+                  Responde con honestidad: usaremos tus resultados para identificar tus áreas de mayor
+                  oportunidad y personalizar tu plan de estudio.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setDiagStarted(true)}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
+                style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
+                <Brain size={15} />
+                Comenzar diagnóstico
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── PASO 2: DIAGNÓSTICO ── */}
         {step === 'diagnostico' && !diagCompleted && (
           <div className="p-8 rounded-3xl"
             style={{ background: 'white', boxShadow: '0 4px 40px rgba(12,31,61,0.1)' }}>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <Brain size={18} style={{ color: '#1d4ed8' }} />
-                <h2 className="font-display text-lg font-semibold" style={{ color: '#0c1f3d' }}>
-                  Diagnóstico inicial
-                </h2>
+
+            {/* Cargando preguntas */}
+            {loadingDiag && (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <Loader2 size={28} className="animate-spin" style={{ color: '#1d4ed8' }} />
+                <p className="text-sm" style={{ color: 'rgba(12,31,61,0.5)' }}>Preparando tu diagnóstico…</p>
               </div>
-              <span className="text-xs font-semibold px-3 py-1 rounded-xl"
-                style={{ background: 'rgba(29,78,216,0.08)', color: '#1d4ed8' }}>
-                {diagStep + 1} / {DIAGNOSTIC_QUESTIONS.length}
-              </span>
-            </div>
+            )}
 
-            {/* Progreso */}
-            <div className="h-1.5 rounded-full mb-6" style={{ background: 'rgba(12,31,61,0.07)' }}>
-              <div className="h-1.5 rounded-full transition-all"
-                style={{ width: `${((diagStep) / DIAGNOSTIC_QUESTIONS.length) * 100}%`, background: '#1d4ed8' }} />
-            </div>
+            {/* Contenido de la pregunta (oculto mientras carga) */}
+            {!loadingDiag && currentQ && (<>
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Brain size={18} style={{ color: '#1d4ed8' }} />
+                  <h2 className="font-display text-lg font-semibold" style={{ color: '#0c1f3d' }}>
+                    Diagnóstico inicial
+                  </h2>
+                </div>
+                <span className="text-xs font-semibold px-3 py-1 rounded-xl"
+                  style={{ background: 'rgba(29,78,216,0.08)', color: '#1d4ed8' }}>
+                  {diagStep + 1} / {diagQuestions.length}
+                </span>
+              </div>
 
-            {/* Badge examen */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl mb-4"
-              style={{ background: 'rgba(29,78,216,0.08)', border: '1px solid rgba(29,78,216,0.15)' }}>
-              <span>{EXAM_ICONS[currentQ.examId]}</span>
-              <span className="text-xs font-semibold" style={{ color: '#1d4ed8' }}>
-                {EXAM_NAMES[currentQ.examId]}
-              </span>
-            </div>
+              {/* Progreso */}
+              <div className="h-1.5 rounded-full mb-6" style={{ background: 'rgba(12,31,61,0.07)' }}>
+                <div className="h-1.5 rounded-full transition-all"
+                  style={{ width: `${(diagStep / diagQuestions.length) * 100}%`, background: '#1d4ed8' }} />
+              </div>
 
-            {/* Pregunta */}
-            <p className="text-sm leading-relaxed mb-6 whitespace-pre-line" style={{ color: '#0c1f3d' }}>
-              {currentQ.text}
-            </p>
+              {/* Badge examen */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl mb-4"
+                style={{ background: 'rgba(29,78,216,0.08)', border: '1px solid rgba(29,78,216,0.15)' }}>
+                <span>{EXAM_ICONS[currentQ.examId]}</span>
+                <span className="text-xs font-semibold" style={{ color: '#1d4ed8' }}>
+                  {EXAM_NAMES[currentQ.examId]}
+                </span>
+              </div>
 
-            {/* Opciones */}
-            <div className="space-y-2 mb-6">
-              {currentQ.options.map((opt, idx) => {
-                const selected = diagAnswers[currentQ.id] === idx;
-                return (
-                  <button key={idx}
-                    onClick={() => handleDiagAnswer(currentQ.id, idx)}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left text-sm transition-all hover:scale-[1.01]"
-                    style={{
-                      background: selected ? 'rgba(29,78,216,0.1)' : '#f8faff',
-                      border:     selected ? '1.5px solid #1d4ed8' : '1.5px solid rgba(12,31,61,0.08)',
-                      color:      selected ? '#1d4ed8' : '#0c1f3d',
-                      fontWeight: selected ? 600 : 400,
-                    }}
-                  >
-                    <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+              {/* Pregunta */}
+              <p className="text-sm leading-relaxed mb-6 whitespace-pre-line" style={{ color: '#0c1f3d' }}>
+                {currentQ.text}
+              </p>
+
+              {/* Opciones */}
+              <div className="space-y-2 mb-6">
+                {currentQ.options.map((opt, idx) => {
+                  const selected = diagAnswers[currentQ.id] === idx;
+                  return (
+                    <button key={idx}
+                      onClick={() => handleDiagAnswer(currentQ.id, idx)}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left text-sm transition-all hover:scale-[1.01]"
                       style={{
-                        background: selected ? '#1d4ed8' : 'rgba(12,31,61,0.07)',
-                        color:      selected ? 'white' : 'rgba(12,31,61,0.5)',
-                      }}>
-                      {['A', 'B', 'C', 'D'][idx]}
-                    </span>
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
+                        background: selected ? 'rgba(29,78,216,0.1)' : '#f8faff',
+                        border:     selected ? '1.5px solid #1d4ed8' : '1.5px solid rgba(12,31,61,0.08)',
+                        color:      selected ? '#1d4ed8' : '#0c1f3d',
+                        fontWeight: selected ? 600 : 400,
+                      }}
+                    >
+                      <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                        style={{
+                          background: selected ? '#1d4ed8' : 'rgba(12,31,61,0.07)',
+                          color:      selected ? 'white' : 'rgba(12,31,61,0.5)',
+                        }}>
+                        {['A', 'B', 'C', 'D', 'E'][idx]}
+                      </span>
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
 
-            {/* Botones */}
-            <div className="flex gap-3">
-              {diagStep > 0 && (
-                <button onClick={() => setDiagStep(s => s - 1)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold"
-                  style={{ background: '#f8faff', border: '1.5px solid rgba(12,31,61,0.08)', color: 'rgba(12,31,61,0.6)' }}>
-                  <ChevronLeft size={14} /> Anterior
+              {/* Botones */}
+              <div className="flex gap-3">
+                {diagStep > 0 && (
+                  <button onClick={() => setDiagStep(s => s - 1)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold"
+                    style={{ background: '#f8faff', border: '1.5px solid rgba(12,31,61,0.08)', color: 'rgba(12,31,61,0.6)' }}>
+                    <ChevronLeft size={14} /> Anterior
+                  </button>
+                )}
+                <button
+                  onClick={handleDiagNext}
+                  disabled={!answered}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.01] disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}
+                >
+                  {diagStep < diagQuestions.length - 1
+                    ? <><ChevronRight size={14} /> Siguiente</>
+                    : <><CheckCircle size={14} /> Ver resultados</>
+                  }
                 </button>
-              )}
-              <button
-                onClick={handleDiagNext}
-                disabled={!answered}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.01] disabled:opacity-50"
-                style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}
-              >
-                {diagStep < DIAGNOSTIC_QUESTIONS.length - 1
-                  ? <><ChevronRight size={14} /> Siguiente</>
-                  : <><CheckCircle size={14} /> Ver resultados</>
-                }
-              </button>
-            </div>
+              </div>
+            </>)}
           </div>
         )}
 
@@ -462,7 +648,7 @@ export default function Onboarding({ onComplete }) {
             </div>
             <p className="text-xs mb-5 p-3 rounded-xl text-center"
               style={{ background: 'rgba(29,78,216,0.05)', color: 'rgba(12,31,61,0.5)', border: '1px solid rgba(29,78,216,0.1)' }}>
-              Estos puntajes son estimaciones orientativas basadas en 2 preguntas por prueba. Tu puntaje real se calcularía con el examen completo.
+              Estos puntajes son estimaciones orientativas basadas en {DIAGNOSTIC_PER_EXAM} preguntas por prueba. Tu puntaje real se calcularía con el examen completo.
             </p>
             <button
               onClick={() => setStep('objetivos')}

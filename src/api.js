@@ -112,15 +112,18 @@ async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries
     userEmail: params.userEmail || '',
   });
 
+  const tag = `[GQ:${params.examId}:${params.skillId||'mix'}:n${params.count}]`;
+
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    // Warm-up delay: si es un reintento por cold-start, esperar 1.5s
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const t0 = performance.now();
 
     try {
+      console.log(`${tag} attempt=${attempt} → fetch START (timeout=${timeoutMs}ms)`);
       const resp = await fetch(url, {
         method: 'POST',
         headers: {
@@ -130,19 +133,25 @@ async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries
         body,
         signal: controller.signal,
       });
+      const tHeaders = performance.now();
+      console.log(`${tag} attempt=${attempt} → headers recibidos status=${resp.status} +${Math.round(tHeaders - t0)}ms`);
 
       const data = await resp.json();
+      const tBody = performance.now();
+      console.log(`${tag} attempt=${attempt} → body parseado +${Math.round(tBody - t0)}ms`, data.error ? `ERROR: ${data.error}` : `ok, questions=${data.questions?.length}`);
+
       if (data.error) {
         lastError = new Error(data.error);
-        // 500 en intento 0 → probablemente cold start, reintentar
         if (resp.status === 500 && attempt < retries) continue;
         throw lastError;
       }
       return data;
     } catch (err) {
+      const elapsed = Math.round(performance.now() - t0);
       lastError = err.name === 'AbortError'
         ? new Error(`Tiempo de espera agotado (${timeoutMs / 1000}s). Revisa tu conexión.`)
         : err;
+      console.warn(`${tag} attempt=${attempt} → CATCH err=${err.name}: ${err.message} +${elapsed}ms`);
       if (attempt < retries) continue;
       throw lastError;
     } finally {
@@ -167,6 +176,7 @@ function getStaticFallbackQuestions(examId, skillId, count) {
 }
 
 async function saveToBancoIA(questions, examId, skillId, userEmail) {
+  const t0 = performance.now();
   try {
     const rows = questions.map(q => ({
       id:           q.id,
@@ -179,9 +189,11 @@ async function saveToBancoIA(questions, examId, skillId, userEmail) {
       generado_por: userEmail || 'unknown',
     }));
     const { error } = await supabase.from('banco_ia').insert(rows);
-    if (error) console.warn('[saveToBancoIA] insert error:', error.code, error.message);
+    const elapsed = Math.round(performance.now() - t0);
+    if (error) console.warn(`[saveToBancoIA] insert error +${elapsed}ms:`, error.code, error.message);
+    else console.log(`[saveToBancoIA] ${rows.length} preguntas guardadas +${elapsed}ms`);
   } catch (err) {
-    console.warn('[saveToBancoIA] exception:', err.message);
+    console.warn(`[saveToBancoIA] exception +${Math.round(performance.now() - t0)}ms:`, err.message);
   }
 }
 
@@ -652,17 +664,17 @@ export const api = {
 
   // â”€â”€ Banco de preguntas IA: obtener no-vistas por usuario â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async getBancoQuestions(examId, skillId, userEmail, count) {
+    const t0 = performance.now();
     try {
-      // Ids ya vistos por este usuario en este examen
       const { data: vistas } = await supabase
         .from('preguntas_vistas')
         .select('question_id')
         .eq('user_email', userEmail)
         .eq('exam_id', examId);
+      console.log(`[getBanco] preguntas_vistas +${Math.round(performance.now() - t0)}ms → ${vistas?.length ?? 0} vistas`);
 
       const vistoIds = (vistas || []).map(v => v.question_id);
 
-      // Buscar preguntas disponibles en banco_ia
       let query = supabase
         .from('banco_ia')
         .select('*')
@@ -672,13 +684,12 @@ export const api = {
       if (skillId) query = query.eq('skill_id', skillId);
 
       const { data: banco } = await query;
+      console.log(`[getBanco] banco_ia +${Math.round(performance.now() - t0)}ms → ${banco?.length ?? 0} en banco`);
       if (!banco || banco.length === 0) return [];
 
-      // Filtrar las no vistas
       const noVistas = banco.filter(q => !vistoIds.includes(q.id));
-
-      // Seleccionar hasta `count` preguntas, priorizando las menos usadas
       const selected = noVistas.slice(0, count);
+      console.log(`[getBanco] no-vistas=${noVistas.length} seleccionadas=${selected.length} +${Math.round(performance.now() - t0)}ms`);
       return selected.map(q => ({
         id:          q.id,
         skill:       q.skill_id,
@@ -690,9 +701,62 @@ export const api = {
         provider:    q.generado_por?.includes('@') ? 'banco' : 'claude',
         fromBanco:   true,
       }));
-    } catch (_) {
+    } catch (err) {
+      console.warn(`[getBanco] CATCH +${Math.round(performance.now() - t0)}ms:`, err.message);
       return [];
     }
+  },
+
+  // ── Diagnóstico dinámico: 2 preguntas por examen desde banco_ia ────────────
+
+  async getDiagnosticQuestions(userEmail, perExam = 2) {
+    const EXAMS = ['lectora', 'm1', 'm2', 'historia', 'ciencias'];
+    const results = await Promise.all(
+      EXAMS.map(async (examId) => {
+        // 1. Buscar en banco_ia preguntas no vistas
+        const fromBanco = await this.getBancoQuestions(examId, null, userEmail, perExam).catch(() => []);
+        const tagged = fromBanco.map(q => ({ ...q, examId }));
+
+        if (tagged.length >= perExam) return tagged.slice(0, perExam);
+
+        const missing = perExam - tagged.length;
+
+        // 2. Generar con IA lo que falta (Supabase Edge Function)
+        try {
+          const result = await callEdgeFunctionForQuestions(
+            { examId, skillId: null, count: missing, userEmail },
+            { timeoutMs: 30000, retries: 1 },
+          );
+          const generated = (result.questions || []).slice(0, missing);
+          if (generated.length > 0) {
+            await saveToBancoIA(generated, examId, null, userEmail);
+            return [...tagged, ...generated.map(q => ({ ...q, examId, aiGenerated: true }))];
+          }
+        } catch (_) { /* IA falló, usar fallback estático */ }
+
+        // 3. Fallback estático (solo si IA también falla)
+        const staticFb = getStaticFallbackQuestions(examId, null, missing);
+        return [...tagged, ...staticFb.map(q => ({ ...q, examId }))];
+      })
+    );
+    return results.flat();
+  },
+
+  // Marcar preguntas del diagnóstico como vistas (multi-examen)
+  async markDiagnosticAsSeen(userEmail, questions, answersMap) {
+    if (!userEmail || !questions?.length) return;
+    try {
+      const rows = questions.map(q => ({
+        user_email:   userEmail,
+        question_id:  q.id,
+        exam_id:      q.examId,
+        skill_id:     q.skill || 'mixed',
+        fue_correcta: answersMap ? (answersMap[q.id] === q.correct) : null,
+      }));
+      await supabase
+        .from('preguntas_vistas')
+        .upsert(rows, { onConflict: 'user_email,question_id', ignoreDuplicates: false });
+    } catch (_) { /* no crítico */ }
   },
 
   // Marcar preguntas como vistas (llamar tras servir preguntas al usuario)
@@ -918,10 +982,12 @@ export const api = {
     return data || null;
   },
 
-  async completeOnboarding(email) {
+  async completeOnboarding(email, durationSeconds) {
+    const update = { onboarding_completado: true };
+    if (typeof durationSeconds === 'number') update.onboarding_duration_seconds = durationSeconds;
     const { error } = await supabase
       .from('usuarios')
-      .update({ onboarding_completado: true })
+      .update(update)
       .eq('email', email);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -954,11 +1020,20 @@ export const api = {
   },
 
   async generateQuestions({ examId, skillId, count, userEmail, forceAI = false }) {
+    const T0 = performance.now();
+    const label = `[generateQuestions:${examId}:${skillId||'mix'}:n${count}:forceAI=${forceAI}]`;
+    console.log(`${label} START`);
+
     const ctx = EXAM_CONTEXT[examId];
     if (!ctx) throw new Error('examId no reconocido: ' + examId);
 
     const requested = Math.max(1, Math.min(Number(count) || 5, 120));
-    const chunkSize = 1; // 1 pregunta por chunk, todas en paralelo = mínima latencia
+    // lectora usa maxTokens=4500 (el más alto) → cada llamada tarda ~7s para 1q, >15s para 3q.
+    // Con chunkSize=1 y timeout=20s, cada chunk genera 1 pregunta en ~7s dentro del margen.
+    // Otros exámenes (3000 tokens) sí completan 3 preguntas dentro de 15s.
+    const isLectora = examId === 'lectora';
+    const chunkSize = isLectora ? 1 : 3;
+    const chunkTimeout = isLectora ? 20000 : 15000;
 
     // Estrategia inteligente:
     // 1) usar primero preguntas no vistas del banco
@@ -967,6 +1042,7 @@ export const api = {
       userEmail && !forceAI
         ? await this.getBancoQuestions(examId, skillId, userEmail, requested)
         : [];
+    console.log(`${label} getBanco done → fromBanco=${bancoQuestions.length} +${Math.round(performance.now() - T0)}ms`);
 
     const fromBanco = bancoQuestions.length;
     const missing = forceAI ? requested : Math.max(0, requested - fromBanco);
@@ -978,25 +1054,44 @@ export const api = {
       for (let i = 0; i < missing; i += chunkSize) {
         chunks.push(Math.min(chunkSize, missing - i));
       }
-      try {
-        const results = await Promise.all(
-          chunks.map(n => callEdgeFunctionForQuestions({ examId, skillId, count: n, userEmail }))
+      console.log(`${label} chunks=${JSON.stringify(chunks)} → ${chunks.length} requests paralelos`);
+
+      // Promise.allSettled: recoge preguntas de los chunks exitosos aunque otros fallen.
+      // Timeout reducido a 15s (fail fast) y sin retry para evitar esperas de 51s+.
+      const tAI = performance.now();
+      const settled = await Promise.allSettled(
+        chunks.map(n => callEdgeFunctionForQuestions(
+          { examId, skillId, count: n, userEmail },
+          { timeoutMs: chunkTimeout, retries: 0 },
+        ))
+      );
+      console.log(`${label} allSettled done +${Math.round(performance.now() - tAI)}ms`);
+
+      for (const res of settled) {
+        if (res.status === 'fulfilled') {
+          aiQuestions.push(...(res.value.questions || []));
+        } else {
+          console.warn(`${label} chunk REJECTED:`, res.reason?.message);
+        }
+      }
+      console.log(`${label} aiQuestions=${aiQuestions.length} (de ${missing} pedidas) +${Math.round(performance.now() - T0)}ms`);
+
+      if (aiQuestions.length > 0) {
+        // Fire-and-forget: guardar en banco_ia no es crítico para el flujo.
+        // Evita que un hang de Supabase bloquee al usuario que ya tiene sus preguntas.
+        saveToBancoIA(aiQuestions, examId, skillId, userEmail).catch(err =>
+          console.warn(`${label} saveToBancoIA background error:`, err?.message)
         );
-        for (const result of results) {
-          aiQuestions.push(...(result.questions || []));
-        }
-        if (aiQuestions.length > 0) {
-          await saveToBancoIA(aiQuestions, examId, skillId, userEmail);
-        }
-      } catch (e) {
-        if (fromBanco === 0 && aiQuestions.length === 0) {
-          const staticFallback = getStaticFallbackQuestions(examId, skillId, requested);
-          if (staticFallback.length > 0) {
-            aiQuestions.push(...staticFallback);
-            usedStaticFallback = true;
-          } else {
-            throw new Error(e.message);
-          }
+      } else if (fromBanco === 0) {
+        // Todos los chunks fallaron y no hay banco: usar estático
+        console.warn(`${label} todos los chunks fallaron → static fallback`);
+        const staticFallback = getStaticFallbackQuestions(examId, skillId, requested);
+        if (staticFallback.length > 0) {
+          aiQuestions.push(...staticFallback);
+          usedStaticFallback = true;
+        } else {
+          const firstErr = settled.find(r => r.status === 'rejected');
+          throw new Error(firstErr?.reason?.message || 'Error generando preguntas con IA');
         }
       }
     }
@@ -1005,6 +1100,7 @@ export const api = {
     if (!usedStaticFallback && (fromBanco + aiQuestions.length) < requested) {
       const needed = requested - fromBanco - aiQuestions.length;
       if (needed > 0) {
+        console.log(`${label} complementando con ${needed} preguntas estáticas`);
         const staticComplement = getStaticFallbackQuestions(examId, skillId, needed);
         if (staticComplement.length > 0) {
           aiQuestions.push(...staticComplement);
@@ -1014,10 +1110,13 @@ export const api = {
     }
 
     const allQuestions = [...bancoQuestions, ...aiQuestions].slice(0, requested);
+    console.log(`${label} END total=${allQuestions.length} +${Math.round(performance.now() - T0)}ms (banco=${fromBanco} ai=${aiQuestions.length} staticFallback=${usedStaticFallback})`);
 
     // Marcar todas como vistas para este usuario
     if (userEmail && allQuestions.length > 0) {
+      const tMark = performance.now();
       await this.markQuestionsAsSeen(userEmail, allQuestions, examId);
+      console.log(`${label} markAsSeen done +${Math.round(performance.now() - tMark)}ms`);
     }
 
     return {

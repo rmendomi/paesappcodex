@@ -146,7 +146,7 @@ export default function App() {
   }
 
   // ── Páginas públicas
-  if (view === 'landing')  return <Landing  onEnter={() => setView('login')} />;
+  if (view === 'landing')  return <Landing  isLoggedIn={!!user} onEnter={() => user ? navigate('dashboard') : setView('login')} />;
   if (view === 'register') return <Register onBack={() => setView('landing')} onLogin={() => setView('login')} onSuccess={() => setView('onboarding')} />;
   if (view === 'login')    return <Login    onLogin={handleLogin} onBack={() => setView('landing')} onRegister={() => setView('register')} />;
 

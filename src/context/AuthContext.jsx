@@ -135,7 +135,13 @@ export function AuthProvider({ children }) {
       if (event === 'SIGNED_IN' && session?.user?.email) {
         // Saltar durante register() para evitar race condition profile→signOut
         if (!isRegistering.current) {
-          await loadUserData(session.user.email);
+          try {
+            await loadUserData(session.user.email);
+          } finally {
+            // authLoading puede estar en true si viene del flujo login().
+            // Solo aquí lo ponemos en false una vez que el perfil está cargado.
+            if (active) setAuthLoading(false);
+          }
         }
         return;
       }
@@ -204,6 +210,7 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async ({ email, password }) => {
     setAuthLoading(true);
+    let success = false;
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
@@ -225,8 +232,11 @@ export function AuthProvider({ children }) {
       if (!data?.session) {
         throw new Error('No se pudo iniciar sesión. Intenta de nuevo.');
       }
+      // Éxito: mantener authLoading=true hasta que el handler SIGNED_IN
+      // complete loadUserData y dispare la navegación desde App.jsx
+      success = true;
     } finally {
-      setAuthLoading(false);
+      if (!success) setAuthLoading(false);
     }
   }, []);
 
@@ -341,9 +351,9 @@ export function AuthProvider({ children }) {
   );
 
   // Marcar onboarding como completado
-  const completeOnboarding = useCallback(async () => {
+  const completeOnboarding = useCallback(async (durationSeconds) => {
     if (!user) return;
-    await api.completeOnboarding(user.email);
+    await api.completeOnboarding(user.email, durationSeconds);
     setUser((prev) => ({ ...prev, onboardingCompletado: true }));
   }, [user]);
 

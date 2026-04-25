@@ -41,7 +41,7 @@ const differentiators = [
   },
 ];
 
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, isLoggedIn }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -72,7 +72,7 @@ export default function Landing({ onEnter }) {
             <button onClick={onEnter}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-105"
               style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
-              Comenzar gratis
+              {isLoggedIn ? 'Ir al dashboard' : 'Comenzar gratis'}
               <ArrowRight size={14} />
             </button>
           </div>
@@ -92,7 +92,7 @@ export default function Landing({ onEnter }) {
             <button onClick={onEnter}
               className="w-full py-2.5 rounded-xl text-sm font-semibold text-white"
               style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
-              Comenzar gratis
+              {isLoggedIn ? 'Ir al dashboard' : 'Comenzar gratis'}
             </button>
           </div>
         )}
@@ -133,7 +133,7 @@ export default function Landing({ onEnter }) {
                 <button onClick={onEnter}
                   className="flex items-center gap-2 px-7 py-3.5 rounded-2xl font-semibold text-white transition-all hover:scale-105"
                   style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
-                  Comenzar a practicar
+                  {isLoggedIn ? 'Ir al dashboard' : 'Comenzar a practicar'}
                   <ArrowRight size={16} />
                 </button>
                 <a href="#cómo-funciona"
@@ -348,7 +348,7 @@ export default function Landing({ onEnter }) {
           <button onClick={onEnter}
             className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl font-semibold text-white transition-all hover:scale-105"
             style={{ background: 'linear-gradient(135deg, #0c1f3d, #1d4ed8)' }}>
-            Comenzar a practicar gratis
+            {isLoggedIn ? 'Ir al dashboard' : 'Comenzar a practicar gratis'}
             <ArrowRight size={16} />
           </button>
         </div>
