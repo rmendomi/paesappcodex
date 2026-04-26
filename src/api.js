@@ -4,6 +4,8 @@ import { createDiagnosticSessions } from './lib/progress';
 import { questionsBySkill } from './data/catalogSource';
 
 const DEFAULT_TARGETS = { lectora: 700, m1: 700, m2: 680, historia: 690, ciencias: 710 };
+const STRICT_REVIEWED_BANCO_EXAMS = new Set(['ciencias', 'm1', 'm2']);
+const REVIEWED_BANCO_VERSION = 'v5';
 
 // â”€â”€ Contexto para generaciÃ³n de preguntas con IA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const EXAM_CONTEXT = {
@@ -110,6 +112,7 @@ async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries
     skillId:   params.skillId   || null,
     count:     params.count     || 5,
     userEmail: params.userEmail || '',
+    visualAllowed: params.visualAllowed === true,
   });
 
   const tag = `[GQ:${params.examId}:${params.skillId||'mix'}:n${params.count}]`;
@@ -145,6 +148,13 @@ async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries
         if (resp.status === 500 && attempt < retries) continue;
         throw lastError;
       }
+      if (Array.isArray(data.questions)) {
+        const safeQuestions = enforceDeterministicQuestionSafetyList(data.questions, params.examId);
+        if (safeQuestions.length !== data.questions.length) {
+          console.warn(`${tag} safety filter ${data.questions.length} -> ${safeQuestions.length}`);
+        }
+        data.questions = safeQuestions;
+      }
       return data;
     } catch (err) {
       const elapsed = Math.round(performance.now() - t0);
@@ -161,6 +171,35 @@ async function callEdgeFunctionForQuestions(params, { timeoutMs = 25000, retries
   throw lastError;
 }
 
+async function runSettledWithConcurrency(items, concurrency, task) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      try {
+        results[currentIndex] = {
+          status: 'fulfilled',
+          value: await task(items[currentIndex], currentIndex),
+        };
+      } catch (reason) {
+        results[currentIndex] = { status: 'rejected', reason };
+      }
+    }
+  }));
+
+  return results;
+}
+
+function shouldAllowVisualResource(examId, chunkIndex, chunkCount) {
+  if (chunkCount <= 1) return false;
+  const every = examId === 'lectora' ? 5 : examId === 'historia' ? 4 : 2;
+  const offset = examId === 'lectora' || examId === 'historia' ? 2 : 1;
+  return (chunkIndex + offset) % every === 0;
+}
+
 function getStaticFallbackQuestions(examId, skillId, count) {
   const examBank = questionsBySkill[examId];
   if (!examBank) return [];
@@ -175,10 +214,166 @@ function getStaticFallbackQuestions(examId, skillId, count) {
   return pool.slice(0, count).map(q => ({ ...q, aiGenerated: false, fromBanco: false, fromStatic: true }));
 }
 
+function normalizeMathText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u00b2/g, '^2')
+    .replace(/\u00b3/g, '^3')
+    .replace(/[\u00b7\u00d7]/g, '*')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function parseDecimal(value) {
+  const number = Number(String(value || '').replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+}
+
+function extractOptionNumbers(option) {
+  return (String(option || '').match(/-?\d+(?:[.,]\d+)?/g) || [])
+    .map(parseDecimal)
+    .filter(n => n !== null);
+}
+
+function optionHasNumber(option, expected, tolerance = 0.02) {
+  const numbers = extractOptionNumbers(option);
+  if (numbers.length >= 2) {
+    const min = Math.min(numbers[0], numbers[1]);
+    const max = Math.max(numbers[0], numbers[1]);
+    if (expected >= min - tolerance && expected <= max + tolerance) return true;
+  }
+  return numbers.some(n => Math.abs(n - expected) <= tolerance);
+}
+
+function findOptionByNumber(options, expected, tolerance = 0.02) {
+  return options.findIndex(option => optionHasNumber(option, expected, tolerance));
+}
+
+function findOptionByText(options, pattern) {
+  return options.findIndex(option => pattern.test(normalizeMathText(option)));
+}
+
+function powerDigitRule(text) {
+  if (!/cuantos digitos|cantidad de digitos/.test(text)) return null;
+  const match = text.match(/(\d+)\s*\^\s*(\d+)/);
+  if (!match) return null;
+  const base = BigInt(match[1]);
+  const exponent = BigInt(match[2]);
+  if (exponent > 80n) return null;
+  return { expected: (base ** exponent).toString().length, tolerance: 0 };
+}
+
+function sinePeriodRule(text, options) {
+  if (!/funcion seno|sen\s*\(|seno/.test(text) || !/periodo/.test(text)) return null;
+  return { expectedIndex: findOptionByText(options, /\b2\s*(pi|\u03c0)\b|2\u03c0/) };
+}
+
+function factoredXAxisRule(text, options) {
+  if (!/corta al eje x|cortes? con el eje x/.test(text)) return null;
+  const match = text.match(/\(x\s*([+-])\s*(\d+)\)\s*\(x\s*([+-])\s*(\d+)\)/);
+  if (!match) return null;
+  const first = match[1] === '+' ? -Number(match[2]) : Number(match[2]);
+  const second = match[3] === '+' ? -Number(match[4]) : Number(match[4]);
+  const expectedIndex = options.findIndex(option => {
+    const normalized = normalizeMathText(option);
+    return normalized.includes(`(${first},0)`) && normalized.includes(`(${second},0)`);
+  });
+  return { expectedIndex };
+}
+
+function depreciationModelRule(text, options) {
+  const rate = text.match(/deprecia\s+un\s+(\d+(?:[.,]\d+)?)\s*%/);
+  if (!rate || !/modelo/.test(text)) return null;
+  const factor = 1 - Number(rate[1].replace(',', '.')) / 100;
+  const comma = factor.toFixed(2).replace('.', ',').replace(/0$/, '');
+  const dot = factor.toFixed(2).replace(/0$/, '');
+  return { expectedIndex: findOptionByText(options, new RegExp(`\\(?(${comma}|${dot})\\)?\\s*\\^?\\s*t`)) };
+}
+
+function rampSineRule(text) {
+  if (!/rampa/.test(text) || !/sen|sin/.test(text)) return null;
+  const heightMatch = text.match(/altura[^0-9]*(\d+(?:[.,]\d+)?)/);
+  const angleMatch = text.match(/angulo[^0-9]*(\d+(?:[.,]\d+)?)/);
+  if (!heightMatch || !angleMatch) return null;
+  const height = Number(heightMatch[1].replace(',', '.'));
+  const angle = Number(angleMatch[1].replace(',', '.'));
+  if (!Number.isFinite(height) || !Number.isFinite(angle)) return null;
+  const expected = height / Math.sin(angle * Math.PI / 180);
+  return { expected, tolerance: Math.max(0.15, expected * 0.025) };
+}
+
+function exponentialTimeRule(text) {
+  const fn = text.match(/=\s*(\d+(?:[.,]\d+)?)\s*\*?\s*2\s*\^\s*\(?t\s*\/\s*(\d+(?:[.,]\d+)?)\)?/);
+  const target = text.match(/=\s*(\d+(?:[.,]\d+)?)\s*(?:suscriptores|usuarios|personas|clientes|$)/g);
+  if (!fn || !target || target.length < 2) return null;
+  const start = Number(fn[1].replace(',', '.'));
+  const divisor = Number(fn[2].replace(',', '.'));
+  const targetValueMatch = target[target.length - 1].match(/(\d+(?:[.,]\d+)?)/);
+  const targetValue = targetValueMatch ? Number(targetValueMatch[1].replace(',', '.')) : NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(divisor) || !Number.isFinite(targetValue) || targetValue <= start) return null;
+  const expected = divisor * Math.log2(targetValue / start);
+  return { expected, tolerance: 0.15 };
+}
+
+function quadraticVertexRule(text) {
+  if (!/vertice|maximo|minimo|minimo|maxima|disminuir/.test(text)) return null;
+  const match = text.match(/=\s*([+-]?\d+(?:[.,]\d+)?)\s*x\^2\s*([+-])\s*(\d+(?:[.,]\d+)?)\s*x/);
+  if (!match) return null;
+  const a = Number(match[1].replace(',', '.'));
+  const b = Number(match[3].replace(',', '.')) * (match[2] === '-' ? -1 : 1);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === 0) return null;
+  return { expected: -b / (2 * a), tolerance: 0.15 };
+}
+
+function deterministicMathRule(question) {
+  const text = normalizeMathText(`${question.text || ''} ${question.explanation || ''}`);
+  const options = Array.isArray(question.options) ? question.options : [];
+  return (
+    powerDigitRule(text) ||
+    sinePeriodRule(text, options) ||
+    factoredXAxisRule(text, options) ||
+    depreciationModelRule(text, options) ||
+    rampSineRule(text) ||
+    exponentialTimeRule(text) ||
+    quadraticVertexRule(text)
+  );
+}
+
+function enforceDeterministicQuestionSafety(question, examId) {
+  if (!STRICT_REVIEWED_BANCO_EXAMS.has(examId) || !question?.aiGenerated) return question;
+  const rule = deterministicMathRule(question);
+  if (!rule) return question;
+
+  const expectedIndex = Number.isInteger(rule.expectedIndex)
+    ? rule.expectedIndex
+    : findOptionByNumber(question.options || [], rule.expected, rule.tolerance ?? 0.02);
+
+  if (expectedIndex < 0) {
+    console.warn(`[questionSafety] ${examId} descarta pregunta ${question.id || ''}: respuesta calculada no aparece`);
+    return null;
+  }
+
+  if (question.correct !== expectedIndex) {
+    console.warn(`[questionSafety] ${examId} corrige clave ${question.id || ''}: ${question.correct} -> ${expectedIndex}`);
+    return { ...question, correct: expectedIndex };
+  }
+
+  return question;
+}
+
+function enforceDeterministicQuestionSafetyList(questions, examId) {
+  return (questions || [])
+    .map(q => enforceDeterministicQuestionSafety(q, examId))
+    .filter(Boolean);
+}
+
 async function saveToBancoIA(questions, examId, skillId, userEmail) {
   const t0 = performance.now();
   try {
-    const rows = questions.map(q => ({
+    const safeQuestions = enforceDeterministicQuestionSafetyList(questions, examId);
+    if (safeQuestions.length === 0) return;
+    const rows = safeQuestions.map(q => ({
       id:           q.id,
       exam_id:      examId,
       skill_id:     skillId || 'mixed',
@@ -503,12 +698,13 @@ export const api = {
       mode: mode || 'practice',
       correct: correct || 0, total: total || 0, score: score || 0,
       date: date || new Date().toISOString(),
-      skill_id: skillId || null,
-      question_ids: questionIds || [],
-      wrong_ids: wrongIds || [],
-      security_events: securityEvents || [],
-      security_warnings: securityWarnings || 0,
     };
+
+    if (skillId) payload.skill_id = skillId;
+    if (Array.isArray(questionIds) && questionIds.length > 0) payload.question_ids = questionIds;
+    if (Array.isArray(wrongIds) && wrongIds.length > 0) payload.wrong_ids = wrongIds;
+    if (Array.isArray(securityEvents) && securityEvents.length > 0) payload.security_events = securityEvents;
+    if (Number(securityWarnings) > 0) payload.security_warnings = Number(securityWarnings);
 
     const { error } = await supabase.from('sesiones').insert(payload);
     if (error && error.message?.includes('column')) {
@@ -687,10 +883,17 @@ export const api = {
       console.log(`[getBanco] banco_ia +${Math.round(performance.now() - t0)}ms → ${banco?.length ?? 0} en banco`);
       if (!banco || banco.length === 0) return [];
 
-      const noVistas = banco.filter(q => !vistoIds.includes(q.id));
+      const bancoValidado = STRICT_REVIEWED_BANCO_EXAMS.has(examId)
+        ? banco.filter(q => String(q.id || '').startsWith(`ai_${examId}_${REVIEWED_BANCO_VERSION}_`))
+        : banco;
+      if (bancoValidado.length !== banco.length) {
+        console.log(`[getBanco] ${examId} omite ${banco.length - bancoValidado.length} preguntas IA sin validacion estricta`);
+      }
+
+      const noVistas = bancoValidado.filter(q => !vistoIds.includes(q.id));
       const selected = noVistas.slice(0, count);
       console.log(`[getBanco] no-vistas=${noVistas.length} seleccionadas=${selected.length} +${Math.round(performance.now() - t0)}ms`);
-      return selected.map(q => ({
+      return enforceDeterministicQuestionSafetyList(selected.map(q => ({
         id:          q.id,
         skill:       q.skill_id,
         text:        q.text,
@@ -700,7 +903,7 @@ export const api = {
         aiGenerated: true,
         provider:    q.generado_por?.includes('@') ? 'banco' : 'claude',
         fromBanco:   true,
-      }));
+      })), examId);
     } catch (err) {
       console.warn(`[getBanco] CATCH +${Math.round(performance.now() - t0)}ms:`, err.message);
       return [];
@@ -729,7 +932,7 @@ export const api = {
           );
           const generated = (result.questions || []).slice(0, missing);
           if (generated.length > 0) {
-            await saveToBancoIA(generated, examId, null, userEmail);
+            if (!result.savedToDb) await saveToBancoIA(generated, examId, null, userEmail);
             return [...tagged, ...generated.map(q => ({ ...q, examId, aiGenerated: true }))];
           }
         } catch (_) { /* IA falló, usar fallback estático */ }
@@ -1028,12 +1231,13 @@ export const api = {
     if (!ctx) throw new Error('examId no reconocido: ' + examId);
 
     const requested = Math.max(1, Math.min(Number(count) || 5, 120));
-    // lectora usa maxTokens=4500 (el más alto) → cada llamada tarda ~7s para 1q, >15s para 3q.
-    // Con chunkSize=1 y timeout=20s, cada chunk genera 1 pregunta en ~7s dentro del margen.
-    // Otros exámenes (3000 tokens) sí completan 3 preguntas dentro de 15s.
-    const isLectora = examId === 'lectora';
-    const chunkSize = isLectora ? 1 : 3;
-    const chunkTimeout = isLectora ? 20000 : 15000;
+    // Lectora/Historia tienen prompts largos. Ciencias/M1/M2 pasan por una
+    // auditoria extra de claves, asi que tambien van de a una pregunta.
+    const usesStrictReview = STRICT_REVIEWED_BANCO_EXAMS.has(examId);
+    const usesSingleQuestionChunks = examId === 'lectora' || examId === 'historia' || usesStrictReview;
+    const chunkSize = usesSingleQuestionChunks ? 1 : 3;
+    const chunkTimeout = usesStrictReview ? 45000 : usesSingleQuestionChunks ? 30000 : 20000;
+    const maxParallelChunks = usesStrictReview ? 3 : 4;
 
     // Estrategia inteligente:
     // 1) usar primero preguntas no vistas del banco
@@ -1047,6 +1251,7 @@ export const api = {
     const fromBanco = bancoQuestions.length;
     const missing = forceAI ? requested : Math.max(0, requested - fromBanco);
     const aiQuestions = [];
+    const staticQuestions = [];
     let usedStaticFallback = false;
 
     if (missing > 0) {
@@ -1054,16 +1259,24 @@ export const api = {
       for (let i = 0; i < missing; i += chunkSize) {
         chunks.push(Math.min(chunkSize, missing - i));
       }
-      console.log(`${label} chunks=${JSON.stringify(chunks)} → ${chunks.length} requests paralelos`);
+      console.log(`${label} chunks=${JSON.stringify(chunks)} -> ${chunks.length} requests, concurrency=${maxParallelChunks}`);
 
-      // Promise.allSettled: recoge preguntas de los chunks exitosos aunque otros fallen.
-      // Timeout reducido a 15s (fail fast) y sin retry para evitar esperas de 51s+.
+      // Recoge preguntas de chunks exitosos aunque otros fallen, sin disparar
+      // demasiadas Edge Functions simultaneas.
       const tAI = performance.now();
-      const settled = await Promise.allSettled(
-        chunks.map(n => callEdgeFunctionForQuestions(
-          { examId, skillId, count: n, userEmail },
+      const settled = await runSettledWithConcurrency(
+        chunks,
+        maxParallelChunks,
+        (n, chunkIndex) => callEdgeFunctionForQuestions(
+          {
+            examId,
+            skillId,
+            count: n,
+            userEmail,
+            visualAllowed: shouldAllowVisualResource(examId, chunkIndex, chunks.length),
+          },
           { timeoutMs: chunkTimeout, retries: 0 },
-        ))
+        )
       );
       console.log(`${label} allSettled done +${Math.round(performance.now() - tAI)}ms`);
 
@@ -1077,17 +1290,23 @@ export const api = {
       console.log(`${label} aiQuestions=${aiQuestions.length} (de ${missing} pedidas) +${Math.round(performance.now() - T0)}ms`);
 
       if (aiQuestions.length > 0) {
-        // Fire-and-forget: guardar en banco_ia no es crítico para el flujo.
-        // Evita que un hang de Supabase bloquee al usuario que ya tiene sus preguntas.
-        saveToBancoIA(aiQuestions, examId, skillId, userEmail).catch(err =>
-          console.warn(`${label} saveToBancoIA background error:`, err?.message)
-        );
+        // Skip saveToBancoIA if the edge function already persisted the questions
+        const savedByEdge = settled
+          .filter(r => r.status === 'fulfilled')
+          .some(r => r.value?.savedToDb === true);
+        if (!savedByEdge) {
+          saveToBancoIA(aiQuestions, examId, skillId, userEmail).catch(err =>
+            console.warn(`${label} saveToBancoIA background error:`, err?.message)
+          );
+        } else {
+          console.log(`${label} banco_ia ya guardado por edge function, skip saveToBancoIA`);
+        }
       } else if (fromBanco === 0) {
         // Todos los chunks fallaron y no hay banco: usar estático
         console.warn(`${label} todos los chunks fallaron → static fallback`);
         const staticFallback = getStaticFallbackQuestions(examId, skillId, requested);
         if (staticFallback.length > 0) {
-          aiQuestions.push(...staticFallback);
+          staticQuestions.push(...staticFallback);
           usedStaticFallback = true;
         } else {
           const firstErr = settled.find(r => r.status === 'rejected');
@@ -1097,26 +1316,27 @@ export const api = {
     }
 
     // Si aún faltan preguntas, completar con banco estático sin error
-    if (!usedStaticFallback && (fromBanco + aiQuestions.length) < requested) {
-      const needed = requested - fromBanco - aiQuestions.length;
+    if (!usedStaticFallback && (fromBanco + aiQuestions.length + staticQuestions.length) < requested) {
+      const needed = requested - fromBanco - aiQuestions.length - staticQuestions.length;
       if (needed > 0) {
         console.log(`${label} complementando con ${needed} preguntas estáticas`);
         const staticComplement = getStaticFallbackQuestions(examId, skillId, needed);
         if (staticComplement.length > 0) {
-          aiQuestions.push(...staticComplement);
+          staticQuestions.push(...staticComplement);
           usedStaticFallback = true;
         }
       }
     }
 
-    const allQuestions = [...bancoQuestions, ...aiQuestions].slice(0, requested);
-    console.log(`${label} END total=${allQuestions.length} +${Math.round(performance.now() - T0)}ms (banco=${fromBanco} ai=${aiQuestions.length} staticFallback=${usedStaticFallback})`);
+    const allQuestions = [...bancoQuestions, ...aiQuestions, ...staticQuestions].slice(0, requested);
+    console.log(`${label} END total=${allQuestions.length} +${Math.round(performance.now() - T0)}ms (banco=${fromBanco} ai=${aiQuestions.length} static=${staticQuestions.length} staticFallback=${usedStaticFallback})`);
 
     // Marcar todas como vistas para este usuario
     if (userEmail && allQuestions.length > 0) {
       const tMark = performance.now();
-      await this.markQuestionsAsSeen(userEmail, allQuestions, examId);
-      console.log(`${label} markAsSeen done +${Math.round(performance.now() - tMark)}ms`);
+      this.markQuestionsAsSeen(userEmail, allQuestions, examId)
+        .then(() => console.log(`${label} markAsSeen done +${Math.round(performance.now() - tMark)}ms`))
+        .catch(err => console.warn(`${label} markAsSeen background error:`, err?.message));
     }
 
     return {
@@ -1124,6 +1344,7 @@ export const api = {
       questions:       allQuestions,
       fromBanco:       fromBanco,
       fromAI:          aiQuestions.length,
+      fromStatic:      staticQuestions.length,
       requested,
       usedFallbackAI:  !forceAI && fromBanco < requested && aiQuestions.length > 0,
       usedStaticFallback,

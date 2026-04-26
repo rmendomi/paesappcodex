@@ -69,6 +69,398 @@ function highlightKeywords(text) {
   );
 }
 
+function normalizeBodyText(text) {
+  return String(text || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function splitQuestionText(text) {
+  const clean = normalizeBodyText(text);
+  const visualMatch = clean.match(/\bRECURSO\s+VISUAL\s*:/i);
+  const questionMatch = clean.match(/\bPREGUNTA\s*:/i);
+
+  if (visualMatch) {
+    const intro = clean.slice(0, visualMatch.index).trim();
+    const afterVisual = clean.slice(visualMatch.index + visualMatch[0].length).trim();
+    const nestedQuestionMatch = afterVisual.match(/\bPREGUNTA\s*:/i);
+    if (nestedQuestionMatch) {
+      return {
+        intro,
+        visual: afterVisual.slice(0, nestedQuestionMatch.index).trim(),
+        question: afterVisual.slice(nestedQuestionMatch.index + nestedQuestionMatch[0].length).trim(),
+      };
+    }
+    return { intro, visual: afterVisual, question: '' };
+  }
+
+  if (questionMatch) {
+    return {
+      intro: clean.slice(0, questionMatch.index).trim(),
+      visual: '',
+      question: clean.slice(questionMatch.index + questionMatch[0].length).trim(),
+    };
+  }
+
+  return { intro: clean, visual: '', question: '' };
+}
+
+function isVisualBorderLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return true;
+  return /^[|+\-_=:\s\u2500-\u257f\\/]+$/.test(trimmed) && !/[A-Za-z0-9$%]/.test(trimmed);
+}
+
+function isDecorativeCell(cell) {
+  const compact = String(cell || '').replace(/\s/g, '');
+  return !compact || /^[\\/^v()\u2190-\u21ff]+$/i.test(compact) || /^h$/i.test(compact);
+}
+
+function parsePipeCells(line) {
+  if (!line.includes('|')) return [];
+  return line
+    .split('|')
+    .map(cell => cell.trim())
+    .filter(cell => cell && !isVisualBorderLine(cell) && !isDecorativeCell(cell));
+}
+
+function parseKeyValue(text) {
+  const match = String(text || '').match(/^(.{2,60}?)(?:\s*[:=]\s*)(.+)$/);
+  if (!match) return null;
+  return { label: match[1].trim(), value: match[2].trim() };
+}
+
+function parseVisualResource(text) {
+  const lines = normalizeBodyText(text)
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const captions = [];
+  const rows = [];
+  const directItems = [];
+
+  lines.forEach(line => {
+    if (isVisualBorderLine(line)) return;
+    const cells = parsePipeCells(line);
+    if (cells.length > 0) {
+      rows.push(cells);
+    } else {
+      const item = parseKeyValue(line);
+      if (item) {
+        directItems.push(item);
+      } else {
+        captions.push(line.replace(/:$/, ''));
+      }
+    }
+  });
+
+  const tableRows = rows.filter(row => row.length >= 2);
+  const listItems = directItems.concat(rows
+    .filter(row => row.length === 1)
+    .map(row => parseKeyValue(row[0]))
+    .filter(Boolean));
+
+  const fallbackLines = rows
+    .filter(row => row.length === 1 && !parseKeyValue(row[0]))
+    .map(row => row[0]);
+
+  if (tableRows.length >= 2) {
+    const columnCount = Math.max(...tableRows.map(row => row.length));
+    return {
+      captions,
+      table: tableRows.map(row => [...row, ...Array(Math.max(0, columnCount - row.length)).fill('')]),
+      listItems,
+      fallbackLines: [],
+    };
+  }
+
+  return { captions, table: null, listItems, fallbackLines };
+}
+
+function TextParagraphs({ text, highlight = false }) {
+  const clean = normalizeBodyText(text).replace(/^TEXTO\s*:\s*/i, '').trim();
+  if (!clean) return null;
+
+  return clean.split(/\n{2,}/).map((paragraph, idx) => {
+    const readable = paragraph.replace(/\n+/g, ' ').trim();
+    if (!readable) return null;
+    return (
+      <p key={idx} className="text-base leading-8" style={{ color: '#0c1f3d' }}>
+        {highlight ? highlightKeywords(readable) : readable}
+      </p>
+    );
+  });
+}
+
+function VisualResource({ text }) {
+  const parsed = parseVisualResource(text);
+  const hasTable = parsed.table && parsed.table.length >= 2;
+  const hasList = parsed.listItems.length > 0;
+  const hasFallback = parsed.fallbackLines.length > 0;
+  if (!hasTable && !hasList && !hasFallback && parsed.captions.length === 0) return null;
+
+  return (
+    <figure className="rounded-2xl px-4 py-4 sm:px-5"
+      style={{ background: '#f8faff', border: '1px solid rgba(12,31,61,0.08)' }}>
+      <figcaption className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'rgba(12,31,61,0.48)' }}>
+        Recurso visual
+      </figcaption>
+
+      {parsed.captions.map((caption, idx) => (
+        <p key={idx} className="text-sm font-semibold mb-3" style={{ color: '#0c1f3d' }}>
+          {caption}
+        </p>
+      ))}
+
+      {hasTable && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse" style={{ color: '#0c1f3d' }}>
+            <thead>
+              <tr>
+                {parsed.table[0].map((cell, idx) => (
+                  <th key={idx} className="text-left px-3 py-2 font-semibold"
+                    style={{ background: '#eff6ff', border: '1px solid rgba(12,31,61,0.1)' }}>
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {parsed.table.slice(1).map((row, rowIdx) => (
+                <tr key={rowIdx}>
+                  {row.map((cell, cellIdx) => (
+                    <td key={cellIdx} className="px-3 py-2"
+                      style={{ background: 'white', border: '1px solid rgba(12,31,61,0.08)' }}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {hasList && (
+        <dl className="grid sm:grid-cols-2 gap-2">
+          {parsed.listItems.map((item, idx) => (
+            <div key={idx} className="rounded-xl px-3 py-2"
+              style={{ background: 'white', border: '1px solid rgba(12,31,61,0.08)' }}>
+              <dt className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'rgba(12,31,61,0.45)' }}>
+                {item.label}
+              </dt>
+              <dd className="text-sm font-semibold mt-0.5" style={{ color: '#0c1f3d' }}>
+                {item.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {hasFallback && (
+        <div className="space-y-1">
+          {parsed.fallbackLines.map((line, idx) => (
+            <p key={idx} className="text-sm leading-7" style={{ color: '#0c1f3d' }}>{line}</p>
+          ))}
+        </div>
+      )}
+    </figure>
+  );
+}
+
+function QuestionBody({ text }) {
+  const { intro, visual, question } = splitQuestionText(text);
+  const hasSections = Boolean(visual || question);
+
+  if (!hasSections) {
+    return (
+      <div className="space-y-4">
+        <TextParagraphs text={intro} highlight />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <TextParagraphs text={intro} />
+      {visual && <VisualResource text={visual} />}
+      {question && (
+        <section className="pt-1">
+          <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'rgba(12,31,61,0.45)' }}>
+            Pregunta
+          </p>
+          <p className="text-base leading-8" style={{ color: '#0c1f3d' }}>
+            {highlightKeywords(question)}
+          </p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function stripExplanationLabel(text) {
+  return String(text || '')
+    .replace(/^(Idea|Paso\s*\d+|Resultado|Respuesta|Por eso|Conclusion|Conclusi[oó]n|Explicaci[oó]n)\s*:\s*/i, '')
+    .trim();
+}
+
+function normalizeForSafety(text) {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es');
+}
+
+function mentionsOptionLetter(text) {
+  const normalized = normalizeForSafety(text);
+  return /\b(opcion|alternativa)\s+[a-e]\b/.test(normalized);
+}
+
+function explanationIsUnsafe(text) {
+  const normalized = normalizeForSafety(text);
+  return (
+    /\b(opcion|alternativa)\s+[a-e]\b/.test(normalized) ||
+    /\b(la|el)\s+[a-e]\s+(es|era|seria)\s+(correcta|correcto|incorrecta|incorrecto)\b/.test(normalized) ||
+    /\bindice\s*\d+\b/.test(normalized)
+  );
+}
+
+function splitExplanationChunks(text) {
+  const prepared = normalizeBodyText(text)
+    .replace(/\s+((?:Idea|Paso\s*\d+|Resultado|Respuesta|Por eso|Conclusion|Conclusi[oó]n|Explicaci[oó]n)\s*:)/gi, '\n$1');
+
+  const lineChunks = prepared.split(/\n+/).map(chunk => chunk.trim()).filter(Boolean);
+  if (lineChunks.length > 1) return lineChunks;
+
+  return (prepared.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [prepared])
+    .map(chunk => chunk.trim())
+    .filter(Boolean);
+}
+
+function compactExplanationChunks(text) {
+  const chunks = splitExplanationChunks(text)
+    .map(stripExplanationLabel)
+    .map(chunk => chunk.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter(chunk => !mentionsOptionLetter(chunk));
+
+  const unique = [];
+  chunks.forEach(chunk => {
+    const key = chunk.toLocaleLowerCase('es').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (key && !unique.some(item => item.key === key)) {
+      unique.push({ key, text: chunk });
+    }
+  });
+
+  return unique.slice(0, 3).map(item => item.text);
+}
+
+function looksLikeMathExplanation(text) {
+  return /[=+\-*/^]|\b(calcula|promedio|porcentaje|ecuaci[oó]n|multiplica|divide|suma|resta|valor|resultado)\b/i.test(text);
+}
+
+function labelExplanationChunk(chunk, idx, total, isMath) {
+  if (total === 1) return isMath ? 'Resultado' : 'Por que';
+  if (isMath) {
+    if (idx === 0) return 'Dato clave';
+    if (idx === total - 1) return 'Resultado';
+    return `Paso ${idx}`;
+  }
+  if (idx === 0) return 'Dato clave';
+  if (idx === total - 1) return 'Conclusion';
+  return 'Relacion';
+}
+
+function buildSafeExplanationParts(question, examId) {
+  const correctText = question?.options?.[question.correct];
+  const isMathExam = examId === 'm1' || examId === 'm2';
+
+  if (isMathExam) {
+    return [
+      {
+        type: 'note',
+        number: null,
+        label: 'Resultado',
+        text: correctText
+          ? `El resultado que debe coincidir con la alternativa correcta es: ${correctText}.`
+          : 'El resultado correcto es el que coincide con la alternativa marcada.',
+      },
+      {
+        type: 'note',
+        number: null,
+        label: 'Cómo revisarlo',
+        text: 'Vuelve a los datos del enunciado y comprueba una operación a la vez. Si un paso no sale, reporta la pregunta.',
+      },
+    ];
+  }
+
+  return [
+    {
+      type: 'note',
+      number: null,
+      label: 'Respuesta',
+      text: correctText
+        ? `La respuesta correcta afirma: ${correctText}.`
+        : 'La respuesta correcta es la que coincide directamente con la información del enunciado.',
+    },
+    {
+      type: 'note',
+      number: null,
+      label: 'Cómo revisarlo',
+      text: 'Busca en el texto o en los datos la idea que respalda exactamente esa afirmación. Descarta opciones que agregan, exageran o cambian información.',
+    },
+  ];
+}
+
+function parseExplanationParts(text, fallbackParts = []) {
+  const clean = normalizeBodyText(text);
+  if (!clean || explanationIsUnsafe(clean)) return fallbackParts;
+
+  let chunks = compactExplanationChunks(clean);
+  if (chunks.length === 0) return fallbackParts;
+
+  const isMath = looksLikeMathExplanation(clean);
+  return chunks.map((chunk, idx) => {
+    const label = labelExplanationChunk(chunk, idx, chunks.length, isMath);
+    const isStep = /^Paso/.test(label);
+    return {
+      type: isStep ? 'step' : 'note',
+      number: isStep ? label.replace(/\D/g, '') : null,
+      label,
+      text: chunk,
+    };
+  });
+}
+
+function LearningExplanation({ text, question, examId }) {
+  const parts = parseExplanationParts(text, buildSafeExplanationParts(question, examId));
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {parts.map((part, idx) => (
+        <div key={idx} className="flex items-start gap-3 rounded-xl px-3 py-2"
+          style={{ background: part.type === 'note' ? 'rgba(255,255,255,0.62)' : 'rgba(255,255,255,0.45)' }}>
+          <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5"
+            style={{
+              background: part.type === 'note' ? 'rgba(29,78,216,0.12)' : 'rgba(12,31,61,0.08)',
+              color: part.type === 'note' ? '#1d4ed8' : 'rgba(12,31,61,0.65)',
+            }}>
+            {part.type === 'step' ? part.number : 'i'}
+          </span>
+          <p className="text-sm leading-7" style={{ color: 'rgba(12,31,61,0.72)' }}>
+            <span className="font-semibold" style={{ color: '#0c1f3d' }}>{part.label}: </span>
+            {part.text}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -546,9 +938,7 @@ export default function Practice({ data, onFinish, onBack }) {
         {/* Question text con keywords resaltadas */}
         <div className="mb-8 p-6 rounded-3xl"
           style={{ background: 'white', boxShadow: '0 2px 20px rgba(12,31,61,0.06)', border: '1px solid rgba(12,31,61,0.04)' }}>
-          <p className="text-base leading-relaxed whitespace-pre-line" style={{ color: '#0c1f3d' }}>
-            {highlightKeywords(q.text)}
-          </p>
+          <QuestionBody text={q.text} />
           <div className="mt-3 pt-3 flex items-center gap-1.5" style={{ borderTop: '1px solid rgba(12,31,61,0.04)' }}>
             <mark style={{ background: 'rgba(245,158,11,0.25)', color: '#92400e', borderRadius: '3px', padding: '0 2px', fontSize: '11px', fontWeight: 600 }}>
               palabras clave
@@ -604,9 +994,7 @@ export default function Practice({ data, onFinish, onBack }) {
                 <p className="text-sm font-semibold mb-1" style={{ color: '#0c1f3d' }}>
                   {selected === q.correct ? 'Explicación' : `La respuesta correcta era ${LETTERS[q.correct]}`}
                 </p>
-                <p className="text-sm leading-relaxed" style={{ color: 'rgba(12,31,61,0.65)' }}>
-                  {q.explanation}
-                </p>
+                <LearningExplanation text={q.explanation} question={q} examId={examId} />
                 {q.videoUrl && (
                   <a href={q.videoUrl} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg"
