@@ -115,6 +115,42 @@ body {
 }
 .ring-fill { animation: ring-fill 1.5s ease forwards; }
 
+/* ── Scroll reveal (IntersectionObserver) ── */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.scroll-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.delay-s1 { transition-delay: 0.07s; }
+.delay-s2 { transition-delay: 0.15s; }
+.delay-s3 { transition-delay: 0.23s; }
+.delay-s4 { transition-delay: 0.31s; }
+.delay-s5 { transition-delay: 0.39s; }
+
+/* ── Floating icon ── */
+@keyframes floatY {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-7px); }
+}
+.float-icon   { animation: floatY 2.8s ease-in-out infinite; }
+.float-icon.d1 { animation-delay: 0s;    }
+.float-icon.d2 { animation-delay: 0.45s; }
+.float-icon.d3 { animation-delay: 0.9s;  }
+.float-icon.d4 { animation-delay: 1.35s; }
+
+/* ── Exam pill hover glow ── */
+.exam-pill {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.exam-pill:hover {
+  transform: translateY(-4px) scale(1.04);
+  box-shadow: 0 10px 32px rgba(29,78,216,0.2);
+}
+
 /* ── Badge ── */
 .badge {
   display: inline-flex;
